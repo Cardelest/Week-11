@@ -148,3 +148,9 @@ where w.deadline <= now()
 group by p.week_id, x.player_id;
 
 grant select on public.week_scores, public.leaderboard, public.pick_stats to anon, authenticated;
+
+-- Yeni Supabase projelerinde tablolar API'ye otomatik açılmıyor: yetkileri açıkça veriyoruz (asıl kontrol RLS'te)
+grant usage on schema public to anon, authenticated;
+grant select on public.players, public.profiles, public.weeks, public.predictions, public.team_of_week to anon, authenticated;
+grant insert, update, delete on public.players, public.weeks, public.predictions, public.team_of_week to authenticated;
+grant execute on function public.is_admin(), public.week_closed(int) to anon, authenticated;
