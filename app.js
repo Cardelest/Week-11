@@ -93,14 +93,16 @@ async function enterApp() {
 }
 
 async function loadBase() {
-  const [pl, wk, pr] = await Promise.all([
+  const [pl, wk, mt, pr] = await Promise.all([
     sb.from('players').select('id,team,name,position,zone,number').eq('active', true).order('team').order('name').range(0, 1999),
     sb.from('weeks').select('*').order('id'),
+    sb.from('matches').select('*').order('kickoff'),
     state.user ? sb.from('profiles').select('*').eq('id', state.user.id).maybeSingle() : { data: null }
   ]);
   state.players = pl.data || [];
   state.byId = new Map(state.players.map((p) => [p.id, p]));
   state.weeks = wk.data || [];
+  state.matches = mt.data || [];
   state.profile = pr.data || null;
 }
 
@@ -170,6 +172,22 @@ function go(tab) {
     .catch((e) => { console.error(e); $app.innerHTML = `<div class="card">Bir sorun oldu: ${esc(e.message)}<br><br><button class="btn" onclick="location.reload()">Yenile</button></div>`; });
 }
 
+// ---------- Haftanın maçları ----------
+const opponentOf = (weekId, team) => { const m = (state.matches || []).find((x) => x.week_id === weekId && (x.home === team || x.away === team)); return m ? (m.home === team ? m.away : m.home + ' (dep.)') : null; };
+function openFixtures(weekId) {
+  const list = (state.matches || []).filter((m) => m.week_id === weekId);
+  const days = new Map();
+  list.forEach((m) => { const k = new Date(m.kickoff).toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' }); if (!days.has(k)) days.set(k, []); days.get(k).push(m); });
+  const time = (d) => new Date(d).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  openSheet(`
+    <div class="row between"><h2>${weekId}. Hafta maçları</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
+    <div class="scroll" style="gap:14px">
+      ${list.length ? [...days.entries()].map(([day, ms]) => `<div style="display:flex; flex-direction:column; gap:6px"><div class="small muted" style="font-weight:700; text-transform:capitalize">${day}</div>
+        ${ms.map((m) => `<div class="match"><span class="team">${esc(m.home)}${shirt(KITS[m.home] || EMPTY_KIT, 26)}</span><span class="time">${time(m.kickoff)}</span><span class="team away">${shirt(KITS[m.away] || EMPTY_KIT, 26)}${esc(m.away)}</span></div>${m.stadium ? `<div class="small muted center" style="padding:0; margin-top:-4px">${esc(m.stadium)}</div>` : ''}`).join('')}</div>`).join('')
+      : '<p class="muted center">Bu haftanın maç programı henüz girilmedi.</p>'}
+    </div>`, (a) => { if (a === 'close') closeSheet(); });
+}
+
 // ---------- Ana sayfa ----------
 async function renderHome() {
   const ow = openWeek(), lw = lastClosedWeek();
@@ -188,7 +206,7 @@ async function renderHome() {
       ${ow ? `<button class="btn" id="cta" style="align-self:flex-start">${mine ? 'Kadroma bak' : 'Kadronu oluştur'} →</button>` : ''}
     </div>
     ${state.hasPass ? '' : `<button class="card row" id="protect" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; border-color:var(--gold)"><span class="grow"><b class="gold">Hesabını koru</b><br><span class="small muted">Şifre belirle, telefon değişse de puanların kaybolmasın.</span></span><span class="gold">→</span></button>`}
-    ${ow ? `<div class="card row"><div class="grow"><div style="font-weight:700">${ow.id}. Hafta</div><div class="small muted">Kapanış: ${fmtDate(ow.deadline)}</div></div><span class="pill">${countdown(ow.deadline)}</span></div>` : ''}
+    ${ow ? `<button class="card row" id="fixtures" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%"><div class="grow"><div style="font-weight:700">${ow.id}. Hafta <span class="accent small">· Maçları gör →</span></div><div class="small muted">Kapanış: ${fmtDate(ow.deadline)}</div></div><span class="pill">${countdown(ow.deadline)}</span></button>` : ''}
     ${lw ? `
       <h2 style="margin-top:6px">${lw.id}. Hafta sonucun</h2>
       <div class="row" style="gap:10px">
@@ -202,6 +220,7 @@ async function renderHome() {
     <div class="lock"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#3CC8FF" stroke-width="2" aria-hidden="true"><rect x="5" y="11" width="14" height="10" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Kimse kimsenin kadrosunu kapanıştan önce göremez.</div>`;
   const cta = document.getElementById('cta'); if (cta) cta.onclick = () => go('squad');
   const pr = document.getElementById('protect'); if (pr) pr.onclick = () => go('profile');
+  const fx = document.getElementById('fixtures'); if (fx) fx.onclick = () => openFixtures(ow.id);
 }
 
 // ---------- Kadro ----------
@@ -228,7 +247,7 @@ async function renderSquad() {
   };
   $app.innerHTML = `
     <div class="row between"><h1>Takımını Kur</h1><span class="pill">4 - 4 - 2</span></div>
-    <div class="row between small muted"><span>${w.id}. Hafta · <b style="color:var(--text)">${filled}/11</b> seçildi</span><span>${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
+    <div class="row between small muted"><span><button class="linkbtn" id="fx2">${w.id}. Hafta maçları</button> · <b style="color:var(--text)">${filled}/11</b> seçildi</span><span>${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
     ${closed && tow.length ? `<div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>` : ''}
     <div class="pitch">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
     <p class="small muted" style="text-align:center">${closed ? (tow.length ? 'Yeşil tikli oyuncular 11\'e girdi.' : 'Haftanın 11\'i henüz açıklanmadı.') : '<span class="gold"><b>Kaptan (C) tutarsa 2 puan.</b></span> Oyuncuya dokun: seç, değiştir ya da kaptan yap.'}</p>
@@ -240,6 +259,7 @@ async function renderSquad() {
     $app.querySelectorAll('.slot').forEach((b) => { b.onclick = () => onSlot(+b.dataset.i); });
     document.getElementById('save').onclick = saveSquad;
   }
+  document.getElementById('fx2').onclick = () => openFixtures(w.id);
   const sh = document.getElementById('share');
   if (sh) sh.onclick = () => shareCard(w, d, closed && tow.length ? { tow, source: state.source } : null);
 }
@@ -274,7 +294,7 @@ function openPicker(i) {
     const list = pool.filter((p) => !q || norm(p.name + ' ' + p.team).includes(q)).slice(0, 80);
     $res.innerHTML = list.map((p) => {
       const taken = d.picks.includes(p.id) && d.picks[i] !== p.id;
-      return `<button class="pick" data-id="${p.id}" ${taken ? 'disabled' : ''}>${shirt(kitFor(p, i), 34)}<span class="grow"><b>${esc(p.name)}</b><br><span class="small muted">${esc(p.team)} · ${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span></span>${taken ? '<span class="small muted">Kadroda</span>' : ''}</button>`;
+      return `<button class="pick" data-id="${p.id}" ${taken ? 'disabled' : ''}>${shirt(kitFor(p, i), 34)}<span class="grow"><b>${esc(p.name)}</b><br><span class="small muted">${esc(p.team)} · ${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span>${opponentOf(d.week, p.team) ? `<br><span class="small accent">vs ${esc(opponentOf(d.week, p.team))}</span>` : ''}</span>${taken ? '<span class="small muted">Kadroda</span>' : ''}</button>`;
     }).join('') || '<p class="muted center">Sonuç yok</p>';
     $res.querySelectorAll('.pick').forEach((b) => { b.onclick = () => {
       const old = d.picks[i]; d.picks[i] = +b.dataset.id;
