@@ -151,7 +151,13 @@ function renderWelcome(hasSession = false, mode = 'new') {
         if (error) throw error;
         if (!data) throw new Error('Kullanıcı adı ya da şifre yanlış');
       } else {
-        const { error } = await sb.from('profiles').insert({ id: state.user.id, username });
+        let { error } = await sb.from('profiles').insert({ id: state.user.id, username });
+        if (error?.code === '23503') { // eski, silinmiş oturum: yenisini aç ve tekrar dene
+          await sb.auth.signOut({ scope: 'local' }).catch(() => {});
+          const r = await sb.auth.signInAnonymously(); if (r.error) throw r.error;
+          state.user = r.data.user;
+          ({ error } = await sb.from('profiles').insert({ id: state.user.id, username }));
+        }
         if (error) throw error.code === '23505' ? new Error('Bu kullanıcı adı alınmış. Senin hesabınsa "giriş yap"ı kullan.') : error;
       }
       await loadBase();
