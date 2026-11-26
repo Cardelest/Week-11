@@ -71,7 +71,12 @@ async function boot() {
   state.user = session?.user || null;
   if (!state.user) return renderWelcome();
   await loadBase();
-  if (!state.profile) return renderWelcome(true);
+  if (!state.profile) {
+    // Oturum silinmiş bir kullanıcıya aitse temizle, yeni oturum açılsın
+    const { error } = await sb.auth.getUser();
+    if (error) { await sb.auth.signOut({ scope: 'local' }).catch(() => {}); state.user = null; }
+    return renderWelcome(!!state.user);
+  }
   await enterApp();
 }
 
