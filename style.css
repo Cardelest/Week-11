@@ -154,3 +154,20 @@ label { font-size: 13px; color: var(--muted); display: flex; flex-direction: col
 .okmark { background: var(--good); color: var(--accent-ink); font: 800 14px Barlow, sans-serif; border-radius: 8px; padding: 2px 8px; }
 .nomark { background: rgba(255,138,122,.2); color: var(--bad); font: 800 14px Barlow, sans-serif; border-radius: 8px; padding: 2px 8px; }
 button.match { width: 100%; }
+
+/* Lig sekmesi */
+.seg.seg3 { grid-template-columns: 1fr 1fr 1fr; }
+.seg.seg3 button { font-size: 12.5px; padding: 0 4px; }
+.lrow { display: grid; grid-template-columns: 22px 1fr 22px 22px 22px 22px 32px 30px; align-items: center; gap: 4px; padding: 8px 6px; border-radius: 10px; font-size: 13px; text-align: center; }
+.lrow + .lrow { border-top: 1px solid rgba(28,51,82,.6); }
+.lhead { color: var(--muted); font-size: 11px; font-weight: 700; }
+.lrow .lteam { display: flex; align-items: center; gap: 8px; text-align: left; min-width: 0; }
+.lrow .lteam b { display: block; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.lrow .lp { font: 800 16px Barlow, sans-serif; }
+.lrow .lpos { font: 800 14px Barlow, sans-serif; color: var(--muted); }
+.lrow.ztop .lpos { color: var(--accent); }
+.lrow.zbot .lpos { color: var(--bad); }
+.form { display: flex; gap: 3px; margin-top: 3px; }
+.fdot { display: inline-flex; width: 16px; height: 16px; border-radius: 4px; align-items: center; justify-content: center; font: 800 10px Inter, sans-serif; color: var(--accent-ink); vertical-align: middle; }
+.fdot.fG { background: var(--good); } .fdot.fB { background: #9AA8BD; } .fdot.fM { background: var(--bad); }
+.tabs .tab { font-size: 10.5px; }

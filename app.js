@@ -206,7 +206,7 @@ function go(tab, fromPop = false) {
   state.tab = tab;
   $tabs.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   window.scrollTo(0, 0);
-  Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason, bonus: renderBonus })[tab]())
+  Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason, bonus: renderBonus, league: renderLeague })[tab]())
     .catch((e) => { console.error(e); $app.innerHTML = `<div class="card">Bir sorun oldu: ${esc(e.message)}<br><br><button class="btn" onclick="location.reload()">Yenile</button></div>`; });
 }
 
@@ -224,6 +224,35 @@ function openFixtures(weekId) {
         ${ms.map((m) => `<div class="match"><span class="team">${esc(m.home)}${crest(m.home, 30)}</span><span class="time">${time(m.kickoff)}</span><span class="team away">${crest(m.away, 30)}${esc(m.away)}</span></div>${m.stadium ? `<div class="small muted center" style="padding:0; margin-top:-4px">${esc(m.stadium)}</div>` : ''}`).join('')}</div>`).join('')
       : '<p class="muted center">Bu haftanın maç programı henüz girilmedi.</p>'}
     </div>`, (a) => { if (a === 'close') closeSheet(); });
+}
+
+// ---------- Lig: puan durumu, gol ve asist krallığı ----------
+async function renderLeague() {
+  const view = state.leagueView || 'table';
+  let body = '', note = '';
+  if (view === 'table') {
+    const rows = (await sb.from('league_table').select('*').order('pos')).data || [];
+    const dot = (c) => `<span class="fdot f${c}">${c}</span>`;
+    note = rows[0]?.after_week ? `${rows[0].after_week}. hafta sonu` : '';
+    body = `<div class="card ltable" style="padding:6px 4px">
+      <div class="lrow lhead"><span>#</span><span class="lteam">Takım</span><span>O</span><span>G</span><span>B</span><span>M</span><span>AV</span><span class="lp">P</span></div>
+      ${rows.map((r) => `<div class="lrow ${r.pos <= 2 ? 'ztop' : r.pos >= rows.length - 2 ? 'zbot' : ''}"><span class="lpos">${r.pos}</span>
+        <span class="lteam">${crest(r.team, 24)}<span class="grow"><b>${esc(r.team)}</b><span class="form">${(r.form || '').split('').reverse().map(dot).join('')}</span></span></span>
+        <span>${r.played}</span><span>${r.won}</span><span>${r.drawn}</span><span>${r.lost}</span><span class="small">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><span class="lp">${r.points}</span></div>`).join('') || '<p class="muted center">Puan durumu henüz girilmedi.</p>'}
+    </div>
+    <p class="small muted">Form: son 5 maç, en sağdaki en son maç. <span class="fdot fG">G</span> galibiyet <span class="fdot fB">B</span> beraberlik <span class="fdot fM">M</span> mağlubiyet. AV: averaj (attığı − yediği gol).</p>`;
+  } else {
+    const isGoal = view === 'goals';
+    const rows = (await sb.from(isGoal ? 'top_scorers' : 'top_assists').select('*').order(isGoal ? 'goals' : 'assists', { ascending: false }).order('name')).data || [];
+    let rank = 0, prev = null;
+    body = `<div class="card list" style="padding:6px">${rows.map((r, i) => { const v = isGoal ? r.goals : r.assists; if (v !== prev) { rank = i + 1; prev = v; }
+      return `<div class="item"><span class="rank" ${rank <= 3 ? 'style="color:var(--gold)"' : ''}>${rank}</span>${crest(r.team, 26)}<span class="grow"><b>${esc(r.name)}</b><br><span class="small muted">${esc(r.team)}</span></span><span class="pts">${v}</span></div>`; }).join('') || '<p class="muted center">Henüz girilmedi.</p>'}</div>`;
+  }
+  $app.innerHTML = `
+    <div class="row between"><h1>Süper Lig</h1>${note ? `<span class="small muted">${note}</span>` : ''}</div>
+    <div class="seg seg3" role="group" aria-label="Lig bilgisi"><button data-lv="table" aria-pressed="${view === 'table'}">Puan Durumu</button><button data-lv="goals" aria-pressed="${view === 'goals'}">Gol Krallığı</button><button data-lv="assists" aria-pressed="${view === 'assists'}">Asist Krallığı</button></div>
+    ${body}`;
+  $app.querySelectorAll('[data-lv]').forEach((b) => { b.onclick = () => { state.leagueView = b.dataset.lv; renderLeague(); }; });
 }
 
 // ---------- Haftanın soruları ----------
@@ -341,8 +370,8 @@ async function renderSeason() {
     <h1>🏆 Sezonun <span class="gold" style="font-style:italic">11'i</span></h1>
     ${locked
       ? `<div class="card row"><div class="grow"><div class="small muted">Takım ortalaman</div><div class="display gold" style="font-size:40px">${teamScore !== null ? fmt2(teamScore) : '–'}</div></div><div class="small muted" style="text-align:right">Kilit: ${fmtDate(sd.locked_at)}${started ? `<br>Son ölçüm: ${new Date(mine[0].end_on).toLocaleDateString('tr-TR')}` : ''}</div></div>
-         ${started ? '' : '<div class="lock">⏳ Puanlar ilk Sofascore ölçümünden sonra görünmeye başlayacak. Kilitlediğin günden sonraki maçlar sayılır.</div>'}`
-      : `<p class="muted small">11'ini kur ve <b class="gold">bir kez kilitle</b>. Kilitledikten sonra sezon sonuna kadar değiştiremezsin. Puanın, oyuncularının <b>kilitten sonraki maçlardaki Sofascore ortalamalarının</b> ortalaması olur.</p>`}
+         ${started ? '' : '<div class="lock">⏳ Puanlar ilk ölçümden sonra görünmeye başlayacak. Kilitlediğin günden sonraki maçlar sayılır.</div>'}`
+      : `<p class="muted small">11'ini kur ve <b class="gold">bir kez kilitle</b>. Kilitledikten sonra sezon sonuna kadar değiştiremezsin. Puanın, oyuncularının <b>kilitten sonraki maçlardaki maç puanı ortalamalarının</b> ortalaması olur.</p>`}
     <div class="pitch seasonpitch">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
     ${locked
       ? '<button class="btn subtle" disabled>🔓 Kilidi aç (yakında)</button>'
@@ -352,7 +381,7 @@ async function renderSeason() {
     <div class="card list" style="padding:6px">
       ${board.length ? board.map((r, k) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank" ${k < 3 ? 'style="color:var(--gold)"' : ''}>${k + 1}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}<br><span class="small muted" style="font-weight:500">${r.apps} maç</span></span><span class="pts">${fmt2(r.score)}</span></div>`).join('') : '<p class="muted center">Sıralama ilk ölçümden sonra oluşacak.</p>'}
     </div>
-    <p class="small muted">Kilitten sonra hiç puan almayan (oynamayan) oyuncu 6,00 sayılır. Ortalamalar ayda bir Sofascore'dan güncellenir.</p>`;
+    <p class="small muted">Kilitten sonra hiç puan almayan (oynamayan) oyuncu 6,00 sayılır. Ortalamalar ayda bir güncellenir.</p>`;
   document.getElementById('back').onclick = () => go('home');
   if (!locked) {
     $app.querySelectorAll('.slot').forEach((b) => { b.onclick = () => {
@@ -386,10 +415,10 @@ function openRules() {
       ${step(1, '4-4-2 kadronu kur', '1 kaleci, 4 defans, 4 orta saha, 2 forvet seç. Kanat oyuncuları orta saha sayılır. Kulüp sınırı yok: istersen 11\'ini tek takımdan kur.')}
       ${step(2, 'Altın 11 + Gümüş 11', 'Asıl tahminin <b class="gold">Altın 11</b>. İstersen bir de <b>Gümüş 11</b> kur (ikinci tahminin). Aynı oyuncu ikisinde birden olamaz.')}
       ${step(3, 'Kapanıştan önce kaydet', 'Kadrolar haftanın ilk maçı başlarken kilitlenir. O ana kadar istediğin kadar değiştirebilirsin. Kapanıştan önce kimse kimsenin kadrosunu göremez.')}
-      ${step(4, 'İki ayrı 11, iki ayrı puan', '<b>Veri 11\'i:</b> maç verilerine göre (Sofascore) haftanın en iyi 11\'i. <b>Taraftar 11\'i:</b> taraftar oylamasıyla seçilen 11. Her biri için ayrı puan ve sıralama tutulur.')}
+      ${step(4, 'İki ayrı 11, iki ayrı puan', '<b>Veri 11\'i:</b> maç verilerine göre haftanın en iyi 11\'i. <b>Taraftar 11\'i:</b> taraftar oylamasıyla seçilen 11. Her biri için ayrı puan ve sıralama tutulur.')}
       ${step(5, 'Puanlama', 'Haftanın 11\'ine giren her <b class="gold">Altın</b> oyuncun <b>2 puan</b>, Altın\'daki <b>kaptanın 4 puan</b>, her <b>Gümüş</b> oyuncun <b>1 puan</b> getirir. Örnek: Altın\'dan 2, Gümüş\'ten 1 kişi tutarsa 2×2 + 1 = 5 puan.')}
       ${step('🎯', 'Haftanın soruları', 'Her hafta 7 soru: en çok gol atan takım ve oyuncu, en çok asist, en çok kurtarış yapan kaleci, kırmızı kart görecek oyuncu, en gollü ve en golsüz maç. Her doğru cevap <b class="gold">+2 puan</b>. Eşitlikte hepsi doğru sayılır.')}
-      ${step('🏆', 'Sezonun 11\'i', 'Ayrı bir oyun: 11\'ini bir kez kilitlersin, sezon sonuna kadar değişmez. Puanın, oyuncularının kilitten sonraki maçlardaki Sofascore ortalamalarının ortalamasıdır.')}
+      ${step('🏆', 'Sezonun 11\'i', 'Ayrı bir oyun: 11\'ini bir kez kilitlersin, sezon sonuna kadar değişmez. Puanın, oyuncularının kilitten sonraki maçlardaki maç puanı ortalamalarının ortalamasıdır.')}
       ${step(6, 'Arkadaşlarınla yarış', 'Sıralama sekmesinden lig kur, davet linkini gönder. Profil\'de rozetlerini, sezon istatistiklerini ve hangi mevkileri bildiğini görürsün.')}
       ${step(7, 'Hesabını koru', 'Profil\'den şifre belirle. Telefon değişirse "Zaten hesabım var" deyip kullanıcı adın ve şifrenle girersin.')}
       <p class="small muted">Haftanın 11'i ücretsiz bir tahmin oyunudur. Para ile oynanmaz, para ödülü yoktur.</p>
@@ -424,7 +453,7 @@ async function renderHome() {
     </div>
     ${state.hasPass ? '' : `<button class="card row" id="protect" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; border-color:var(--gold)"><span class="grow"><b class="gold">Hesabını koru</b><br><span class="small muted">Şifre belirle, telefon değişse de puanların kaybolmasın.</span></span><span class="gold">→</span></button>`}
     ${ow ? `<button class="card row" id="fixtures" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%"><div class="grow"><div style="font-weight:700">${ow.id}. Hafta <span class="accent small">· Maçları gör →</span></div><div class="small muted">Kapanış: ${fmtDate(ow.deadline)}</div></div><span class="pill">${countdown(ow.deadline)}</span></button>` : ''}
-    <button class="card row" id="season-card" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%; border-color:var(--gold); background:linear-gradient(135deg,#2A2410,var(--card) 60%)"><span style="font-size:26px">🏆</span><span class="grow"><b class="gold">Sezonun 11'i</b><br><span class="small muted">11'ini bir kez kilitle, sezon sonuna kadar Sofascore ortalamalarıyla yarış.</span></span><span class="gold">→</span></button>
+    <button class="card row" id="season-card" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%; border-color:var(--gold); background:linear-gradient(135deg,#2A2410,var(--card) 60%)"><span style="font-size:26px">🏆</span><span class="grow"><b class="gold">Sezonun 11'i</b><br><span class="small muted">11'ini bir kez kilitle, sezon sonuna kadar maç puanı ortalamalarıyla yarış.</span></span><span class="gold">→</span></button>
     ${ow ? `<button class="card row" id="invite-friends" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%"><span style="font-size:26px">👥</span><span class="grow"><b>Arkadaşlarınla yarış</b><br><span class="small muted">Lig kur, davet et, kadro kurmayanlara hatırlat.</span></span><span class="accent">→</span></button>` : ''}
     ${lw ? `
       <h2 style="margin-top:6px">${lw.id}. Hafta sonucun</h2>
@@ -940,8 +969,8 @@ async function renderAdmin() {
       <div id="bres-admin" style="display:flex; flex-direction:column; gap:8px"></div>
     </div>
     <div class="card" style="display:flex; flex-direction:column; gap:10px">
-      <h2>🏆 Sezon puanları (Sofascore)</h2>
-      <p class="small muted">Kilitli Sezon 11'lerindeki oyuncular. Sofascore'daki <b>Süper Lig sezon ortalamasını</b> ve <b>maç sayısını</b> gir, tarihi seç, kaydet.</p>
+      <h2>🏆 Sezon puanları</h2>
+      <p class="small muted">Kilitli Sezon 11'lerindeki oyuncular. Oyuncunun <b>Süper Lig sezon maç puanı ortalamasını</b> ve <b>maç sayısını</b> gir, tarihi seç, kaydet.</p>
       <label>Ölçüm tarihi<input id="rsdate" type="date"></label>
       <div id="rslist" style="display:flex; flex-direction:column; gap:6px"></div>
       <button class="btn" id="rssave">Ölçümü kaydet</button>
