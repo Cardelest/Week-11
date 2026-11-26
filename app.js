@@ -528,9 +528,10 @@ async function shareCard(w, d, result) {
       if (p && d.captain === p.id) { x.beginPath(); x.arc(cx + 62, cy + 18, 30, 0, Math.PI * 2); x.fillStyle = '#FFC93C'; x.fill(); x.lineWidth = 5; x.strokeStyle = '#07101F'; x.stroke(); x.fillStyle = '#04111F'; x.font = '800 36px Barlow, sans-serif'; x.textAlign = 'center'; x.fillText('C', cx + 62, cy + 31); x.textAlign = 'left'; }
       if (inSet && p && inSet.has(p.id)) { x.beginPath(); x.arc(cx - 62, cy + 18, 28, 0, Math.PI * 2); x.fillStyle = '#7CE38B'; x.fill(); x.lineWidth = 5; x.strokeStyle = '#07101F'; x.stroke(); x.beginPath(); x.moveTo(cx - 75, cy + 19); x.lineTo(cx - 65, cy + 29); x.lineTo(cx - 49, cy + 8); x.lineWidth = 7; x.strokeStyle = '#04111F'; x.lineCap = 'round'; x.stroke(); x.lineCap = 'butt'; }
       // İsim
-      x.font = '700 30px Inter, sans-serif';
+      x.font = `700 ${l.idx.length === 4 ? 26 : 30}px Inter, sans-serif`;
       let name = p ? shortName(p.name) : '–';
-      while (x.measureText(name).width > 220 && name.length > 3) name = name.slice(0, -2) + '…';
+      const maxW = l.idx.length === 4 ? 172 : 240;
+      while (x.measureText(name).width > maxW && name.length > 3) name = name.slice(0, -2) + '…';
       const nw = x.measureText(name).width + 36;
       rr(cx - nw / 2, cy + S + 14, nw, 52, 26); x.fillStyle = '#0A1528'; x.fill(); x.lineWidth = 2; x.strokeStyle = '#2A6FB0'; x.stroke();
       x.fillStyle = '#EEF4FF'; x.textAlign = 'center'; x.fillText(name, cx, cy + S + 51); x.textAlign = 'left';
