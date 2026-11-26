@@ -132,6 +132,9 @@ label { font-size: 13px; color: var(--muted); display: flex; flex-direction: col
 
 /* Yedekler */
 .slot .subname { max-width: 84px; font-size: 10px; color: var(--muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: -2px; }
-.slot .cap.sub { background: var(--muted); }
+.slot .cap.sub { background: #C9D3E0; }
 .benchpitch { background: linear-gradient(180deg, #102238 0%, #0B1A2E 100%); border-style: dashed; }
 .slot.bench.empty .name { border-color: var(--muted); }
+
+.seg.goldsilver button[aria-pressed="true"]:first-child { background: var(--gold); }
+.seg.goldsilver button[aria-pressed="true"]:last-child { background: #C9D3E0; }
