@@ -291,27 +291,50 @@ function onSlot(i) {
   });
 }
 
-function openPicker(i) {
+function openPicker(i, team = null) {
   const zone = ZONE_OF[i], d = state.draft;
   const pool = state.players.filter((p) => p.zone === zone);
+  // Takım sırası: bu haftanın maçlarına göre (rakipler yan yana), kalanlar alfabetik
+  const order = [];
+  (state.matches || []).filter((m) => m.week_id === d.week).forEach((m) => { [m.home, m.away].forEach((t) => { if (!order.includes(t)) order.push(t); }); });
+  [...new Set(pool.map((p) => p.team))].sort((a, b) => a.localeCompare(b, 'tr')).forEach((t) => { if (!order.includes(t)) order.push(t); });
+  const teams = order.filter((t) => pool.some((p) => p.team === t));
   openSheet(`
-    <div class="row between"><h2>${zone} seç</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
-    <input id="q" type="search" placeholder="Oyuncu ya da takım ara" autocomplete="off">
-    <div class="scroll" id="res"></div>`, (a) => { if (a === 'close') closeSheet(); });
+    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}<h2 class="grow">${team ? esc(team) : zone + ' seç'}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
+    ${team ? (opponentOf(d.week, team) ? `<div class="small accent">Bu hafta: vs ${esc(opponentOf(d.week, team))}</div>` : '') : '<input id="q" type="search" placeholder="Ya da oyuncu adı yaz" autocomplete="off">'}
+    <div class="scroll" id="res"></div>`, (a) => {
+    if (a === 'close') closeSheet();
+    if (a === 'back') openPicker(i);
+  });
   const $res = document.getElementById('res'), $q = document.getElementById('q');
   const norm = (s) => s.toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i');
+  const playerList = (list) => list.map((p) => {
+    const taken = d.picks.includes(p.id) && d.picks[i] !== p.id;
+    return `<button class="pick" data-id="${p.id}" ${taken ? 'disabled' : ''}>${shirt(kitFor(p, i), 34)}<span class="grow"><b>${esc(p.name)}</b><br><span class="small muted">${team ? '' : esc(p.team) + ' · '}${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span>${!team && opponentOf(d.week, p.team) ? `<br><span class="small accent">vs ${esc(opponentOf(d.week, p.team))}</span>` : ''}</span>${taken ? '<span class="small muted">Kadroda</span>' : ''}</button>`;
+  }).join('') || '<p class="muted center">Sonuç yok</p>';
+  const bindPicks = () => $res.querySelectorAll('.pick').forEach((b) => { b.onclick = () => {
+    const old = d.picks[i]; d.picks[i] = +b.dataset.id;
+    if (d.captain === old) d.captain = null;
+    d.dirty = true; closeSheet(); renderSquad();
+  }; });
+  const teamGrid = () => {
+    $res.innerHTML = `<div class="teamgrid">${teams.map((t) => {
+      const k = KITS[t] || EMPTY_KIT, n = pool.filter((p) => p.team === t).length;
+      const mine = pool.some((p) => p.team === t && d.picks.includes(p.id));
+      return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${shirt(k, 40)}<b>${esc(t)}</b><span class="small muted">${n} ${zone.toLocaleLowerCase('tr')}</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
+    }).join('')}</div>`;
+    $res.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => openPicker(i, b.dataset.team); });
+  };
+  if (team) {
+    $res.innerHTML = playerList(pool.filter((p) => p.team === team).sort((a, b) => (a.number || 99) - (b.number || 99)));
+    bindPicks();
+    return;
+  }
   const draw = () => {
     const q = norm($q.value.trim());
-    const list = pool.filter((p) => !q || norm(p.name + ' ' + p.team).includes(q)).slice(0, 80);
-    $res.innerHTML = list.map((p) => {
-      const taken = d.picks.includes(p.id) && d.picks[i] !== p.id;
-      return `<button class="pick" data-id="${p.id}" ${taken ? 'disabled' : ''}>${shirt(kitFor(p, i), 34)}<span class="grow"><b>${esc(p.name)}</b><br><span class="small muted">${esc(p.team)} · ${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span>${opponentOf(d.week, p.team) ? `<br><span class="small accent">vs ${esc(opponentOf(d.week, p.team))}</span>` : ''}</span>${taken ? '<span class="small muted">Kadroda</span>' : ''}</button>`;
-    }).join('') || '<p class="muted center">Sonuç yok</p>';
-    $res.querySelectorAll('.pick').forEach((b) => { b.onclick = () => {
-      const old = d.picks[i]; d.picks[i] = +b.dataset.id;
-      if (d.captain === old) d.captain = null;
-      d.dirty = true; closeSheet(); renderSquad();
-    }; });
+    if (!q) return teamGrid();
+    $res.innerHTML = playerList(pool.filter((p) => norm(p.name + ' ' + p.team).includes(q)).slice(0, 80));
+    bindPicks();
   };
   $q.oninput = draw; draw();
 }

@@ -109,3 +109,12 @@ label { font-size: 13px; color: var(--muted); display: flex; flex-direction: col
 .match .team.away { justify-content: flex-start; text-align: left; }
 .match .time { font: 800 17px Barlow, sans-serif; color: var(--accent); background: var(--card2); border-radius: 10px; padding: 4px 10px; }
 .linkbtn { border: 0; background: none; padding: 0; color: var(--accent); font: inherit; font-weight: 700; cursor: pointer; text-decoration: underline; text-underline-offset: 3px; }
+
+/* Takım ızgarası */
+.teamgrid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.teamtile { position: relative; overflow: hidden; display: flex; flex-direction: column; align-items: center; gap: 3px; padding: 14px 6px 10px; border-radius: 16px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: 500 13px Inter, sans-serif; cursor: pointer; text-align: center; }
+.teamtile .sw { position: absolute; left: 0; right: 0; top: 0; height: 6px; background: linear-gradient(90deg, var(--c1) 0 50%, var(--c2) 50% 100%); }
+.teamtile b { font-size: 13px; line-height: 1.2; }
+.teamtile .small { font-size: 11px; }
+.teamtile.has { border-color: var(--accent); }
+.teamtile:active { transform: scale(.97); }
