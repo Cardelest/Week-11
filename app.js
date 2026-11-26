@@ -52,7 +52,7 @@ function toast(msg) {
   clearTimeout(toast.t); toast.t = setTimeout(() => { $toast.hidden = true; }, 2600);
 }
 function fmtDate(d) {
-  return new Date(d).toLocaleString('tr-TR', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit' });
+  return new Date(d).toLocaleString('tr-TR', { weekday: 'short', day: 'numeric', month: 'long', hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' });
 }
 function countdown(d) {
   const ms = new Date(d) - Date.now();
@@ -188,8 +188,8 @@ const opponentOf = (weekId, team) => { const m = (state.matches || []).find((x) 
 function openFixtures(weekId) {
   const list = (state.matches || []).filter((m) => m.week_id === weekId);
   const days = new Map();
-  list.forEach((m) => { const k = new Date(m.kickoff).toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' }); if (!days.has(k)) days.set(k, []); days.get(k).push(m); });
-  const time = (d) => new Date(d).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  list.forEach((m) => { const k = new Date(m.kickoff).toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'Europe/Istanbul' }); if (!days.has(k)) days.set(k, []); days.get(k).push(m); });
+  const time = (d) => new Date(d).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' });
   openSheet(`
     <div class="row between"><h2>${weekId}. Hafta maçları</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
     <div class="scroll" style="gap:14px">
