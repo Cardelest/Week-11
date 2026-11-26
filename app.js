@@ -33,7 +33,14 @@ function shirt(colors, size = 50) {
   const d = 'M21 5 Q30 10 39 5 L44 7 L56 15 L51 26 L45 23 L45 56 L15 56 L15 23 L9 26 L4 15 L16 7 Z';
   return `<svg width="${size}" height="${size}" viewBox="0 0 60 60" aria-hidden="true"><clipPath id="${id}"><path d="${d}"/></clipPath><g clip-path="url(#${id})">${colors.map((c, i) => `<rect x="${i * 10}" y="0" width="10" height="60" fill="${c}"/>`).join('')}</g><path d="${d}" fill="none" stroke="rgba(255,255,255,.4)" stroke-width="1.2"/></svg>`;
 }
-const kitFor = (p, idx) => !p ? EMPTY_KIT : idx === 0 ? GK_KIT : (KITS[p.team] || K('#5D6E88', '#5D6E88', 'solid'));
+const kitFor = (p) => !p ? EMPTY_KIT : (KITS[p.team] || K('#5D6E88', '#5D6E88', 'solid'));
+// Arma yerine kendi rozetimiz: takım kısaltması, takım renklerinde
+const ABBR = { 'Fenerbahçe': 'FB', 'Galatasaray': 'GS', 'Beşiktaş': 'BJK', 'Trabzonspor': 'TS', 'Başakşehir': 'İBFK', 'Göztepe': 'GÖZ', 'Çorum FK': 'ÇOR', 'Samsunspor': 'SAM', 'Çaykur Rizespor': 'RİZ', 'Kasımpaşa': 'KAS', 'Alanyaspor': 'ALA', 'Konyaspor': 'KON', 'Amed SK': 'AMD', 'Gaziantep FK': 'GFK', 'Gençlerbirliği': 'GB', 'Kocaelispor': 'KOC', 'Erzurumspor': 'ERZ', 'Eyüpspor': 'EYP' };
+function crest(team, size = 34) {
+  const k = KITS[team] || EMPTY_KIT, a = ABBR[team] || team.slice(0, 3).toLocaleUpperCase('tr');
+  const fs = a.length > 3 ? size * 0.27 : a.length > 2 ? size * 0.31 : size * 0.38;
+  return `<span class="crest" style="width:${size}px; height:${size}px; --c1:${k[0]}; --c2:${k[3]}; font-size:${fs}px" aria-hidden="true">${a}</span>`;
+}
 
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const shortName = (n) => { const parts = n.split(' '); return parts.length > 1 && n.length > 12 ? parts[0][0] + '. ' + parts.slice(1).join(' ') : n; };
@@ -194,7 +201,7 @@ function openFixtures(weekId) {
     <div class="row between"><h2>${weekId}. Hafta maçları</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
     <div class="scroll" style="gap:14px">
       ${list.length ? [...days.entries()].map(([day, ms]) => `<div style="display:flex; flex-direction:column; gap:6px"><div class="small muted" style="font-weight:700; text-transform:capitalize">${day}</div>
-        ${ms.map((m) => `<div class="match"><span class="team">${esc(m.home)}${shirt(KITS[m.home] || EMPTY_KIT, 26)}</span><span class="time">${time(m.kickoff)}</span><span class="team away">${shirt(KITS[m.away] || EMPTY_KIT, 26)}${esc(m.away)}</span></div>${m.stadium ? `<div class="small muted center" style="padding:0; margin-top:-4px">${esc(m.stadium)}</div>` : ''}`).join('')}</div>`).join('')
+        ${ms.map((m) => `<div class="match"><span class="team">${esc(m.home)}${crest(m.home, 30)}</span><span class="time">${time(m.kickoff)}</span><span class="team away">${crest(m.away, 30)}${esc(m.away)}</span></div>${m.stadium ? `<div class="small muted center" style="padding:0; margin-top:-4px">${esc(m.stadium)}</div>` : ''}`).join('')}</div>`).join('')
       : '<p class="muted center">Bu haftanın maç programı henüz girilmedi.</p>'}
     </div>`, (a) => { if (a === 'close') closeSheet(); });
 }
@@ -300,7 +307,7 @@ function openPicker(i, team = null) {
   [...new Set(pool.map((p) => p.team))].sort((a, b) => a.localeCompare(b, 'tr')).forEach((t) => { if (!order.includes(t)) order.push(t); });
   const teams = order.filter((t) => pool.some((p) => p.team === t));
   openSheet(`
-    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}<h2 class="grow">${team ? esc(team) : zone + ' seç'}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
+    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}${team ? crest(team, 36) : ''}<h2 class="grow">${team ? esc(team) : zone + ' seç'}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
     ${team ? (opponentOf(d.week, team) ? `<div class="small accent">Bu hafta: vs ${esc(opponentOf(d.week, team))}</div>` : '') : '<input id="q" type="search" placeholder="Ya da oyuncu adı yaz" autocomplete="off">'}
     <div class="scroll" id="res"></div>`, (a) => {
     if (a === 'close') closeSheet();
@@ -321,7 +328,7 @@ function openPicker(i, team = null) {
     $res.innerHTML = `<div class="teamgrid">${teams.map((t) => {
       const k = KITS[t] || EMPTY_KIT, n = pool.filter((p) => p.team === t).length;
       const mine = pool.some((p) => p.team === t && d.picks.includes(p.id));
-      return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${shirt(k, 40)}<b>${esc(t)}</b><span class="small muted">${n} ${zone.toLocaleLowerCase('tr')}</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
+      return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${crest(t, 44)}<b>${esc(t)}</b><span class="small muted">${n} ${zone.toLocaleLowerCase('tr')}</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
     }).join('')}</div>`;
     $res.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => openPicker(i, b.dataset.team); });
   };
