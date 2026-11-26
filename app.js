@@ -13,7 +13,7 @@ const LINES = [
   { zone: 'Kaleci', idx: [0] }
 ];
 // Her kutunun mevkisi (sahada soldan sağa): sol bek, 2 stoper, sağ bek; sol kanat, 2 merkez, sağ kanat
-const SLOT_LABEL = ['Kaleci', 'Sol Bek', 'Stoper', 'Stoper', 'Sağ Bek', 'Sol Kanat', 'Merkez OS', 'Merkez OS', 'Sağ Kanat', 'Forvet', 'Forvet'];
+const SLOT_LABEL = ['Kaleci', 'Sol Bek', 'Stoper', 'Stoper', 'Sağ Bek', 'Sol Kanat', 'Merkez', 'Merkez', 'Sağ Kanat', 'Forvet', 'Forvet'];
 const SLOT_POS = [
   ['Kaleci'], ['Sol Bek'], ['Stoper'], ['Stoper'], ['Sağ Bek'],
   ['Sol Kanat', 'Sol Orta Saha'], ['Merkez Orta Saha', 'Ön Libero', 'On Numara'], ['Merkez Orta Saha', 'Ön Libero', 'On Numara'], ['Sağ Kanat', 'Sağ Orta Saha'],

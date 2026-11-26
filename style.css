@@ -138,3 +138,4 @@ label { font-size: 13px; color: var(--muted); display: flex; flex-direction: col
 
 .seg.goldsilver button[aria-pressed="true"]:first-child { background: var(--gold); }
 .seg.goldsilver button[aria-pressed="true"]:last-child { background: #C9D3E0; }
+.slot.empty .name { font-size: 10.5px; padding: 4px 6px; }
