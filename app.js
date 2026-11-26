@@ -206,7 +206,7 @@ function go(tab, fromPop = false) {
   state.tab = tab;
   $tabs.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   window.scrollTo(0, 0);
-  Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason })[tab]())
+  Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason, bonus: renderBonus })[tab]())
     .catch((e) => { console.error(e); $app.innerHTML = `<div class="card">Bir sorun oldu: ${esc(e.message)}<br><br><button class="btn" onclick="location.reload()">Yenile</button></div>`; });
 }
 
@@ -224,6 +224,94 @@ function openFixtures(weekId) {
         ${ms.map((m) => `<div class="match"><span class="team">${esc(m.home)}${crest(m.home, 30)}</span><span class="time">${time(m.kickoff)}</span><span class="team away">${crest(m.away, 30)}${esc(m.away)}</span></div>${m.stadium ? `<div class="small muted center" style="padding:0; margin-top:-4px">${esc(m.stadium)}</div>` : ''}`).join('')}</div>`).join('')
       : '<p class="muted center">Bu haftanın maç programı henüz girilmedi.</p>'}
     </div>`, (a) => { if (a === 'close') closeSheet(); });
+}
+
+// ---------- Haftanın soruları ----------
+const BONUS_Q = [
+  { key: 'team_goals', icon: '⚽', title: 'Haftanın en çok gol atan takımı', type: 'team' },
+  { key: 'top_scorer', icon: '🥅', title: 'Haftanın en çok gol atan oyuncusu', type: 'player' },
+  { key: 'top_assist', icon: '🎯', title: 'Haftanın en çok asist yapan oyuncusu', type: 'player' },
+  { key: 'top_saves', icon: '🧤', title: 'Haftanın en çok kurtarış yapan kalecisi', type: 'player', zone: 'Kaleci' },
+  { key: 'red_card', icon: '🟥', title: 'Kırmızı kart görecek oyuncu', type: 'player', none: 'Kimse kırmızı görmez' },
+  { key: 'most_goals_match', icon: '🔥', title: 'Haftanın en gollü maçı', type: 'match' },
+  { key: 'fewest_goals_match', icon: '🧊', title: 'Haftanın en golsüz maçı', type: 'match' }
+];
+function bonusLabel(q, ans) {
+  if (!ans) return '';
+  if (ans === 'none') return esc(q.none || 'Hiçbiri');
+  if (q.type === 'team') return `${crest(ans, 22)} ${esc(ans)}`;
+  if (q.type === 'match') { const m = (state.matches || []).find((x) => String(x.id) === ans); return m ? `${crest(m.home, 20)} ${esc(m.home)} – ${esc(m.away)} ${crest(m.away, 20)}` : '?'; }
+  const p = state.byId.get(+ans); return p ? `${shirt(kitFor(p), 22)} ${esc(p.name)} <span class="small muted">${esc(p.team)}</span>` : '?';
+}
+// Cevap seçtirme penceresi (kullanıcı ve yönetici ortak kullanır)
+function chooseBonus(q, weekId, onPick, team = null) {
+  const matches = (state.matches || []).filter((m) => m.week_id === weekId);
+  const order = []; matches.forEach((m) => [m.home, m.away].forEach((t) => { if (!order.includes(t)) order.push(t); }));
+  [...new Set(state.players.map((p) => p.team))].sort((a, b) => a.localeCompare(b, 'tr')).forEach((t) => { if (!order.includes(t)) order.push(t); });
+  const head = `<div class="row between">${team ? '<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>' : ''}<h2 class="grow">${q.icon} ${team ? esc(team) : esc(q.title)}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>`;
+  const pick = (v) => { closeSheet(); onPick(v); };
+  if (q.type === 'match') {
+    openSheet(`${head}<div class="scroll" style="gap:8px">${matches.length ? matches.map((m) => `<button class="match" data-a="m${m.id}" style="cursor:pointer; font:inherit; color:var(--text)"><span class="team">${esc(m.home)}${crest(m.home, 28)}</span><span class="time">${new Date(m.kickoff).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit', timeZone: 'Europe/Istanbul' })}</span><span class="team away">${crest(m.away, 28)}${esc(m.away)}</span></button>`).join('') : '<p class="muted center">Bu haftanın maç programı girilmedi.</p>'}</div>`,
+      (a) => { if (a === 'close') return closeSheet(); if (a[0] === 'm') pick(a.slice(1)); });
+    return;
+  }
+  if (q.type === 'team' || !team) {
+    const teams = order.filter((t) => q.type === 'team' || state.players.some((p) => p.team === t && (!q.zone || p.zone === q.zone)));
+    openSheet(`${head}${q.none ? `<button class="btn subtle" data-a="none">🚫 ${esc(q.none)}</button>` : ''}${q.type === 'player' ? '<input id="bq" type="search" placeholder="Ya da oyuncu adı yaz" autocomplete="off">' : ''}
+      <div class="scroll" id="bres"><div class="teamgrid">${teams.map((t) => { const k = KITS[t] || EMPTY_KIT; return `<button class="teamtile" data-a="t${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${crest(t, 40)}<b>${esc(t)}</b>${opponentOf(weekId, t) ? `<span class="small accent">vs ${esc(opponentOf(weekId, t).replace(' (dep.)', ''))}</span>` : ''}</button>`; }).join('')}</div></div>`,
+      (a) => {
+        if (a === 'close') return closeSheet();
+        if (a === 'none') return pick('none');
+        if (a[0] === 't') { const t = a.slice(1); if (q.type === 'team') return pick(t); return chooseBonus(q, weekId, onPick, t); }
+        if (a[0] === 'p') return pick(a.slice(1));
+      });
+    const $bq = document.getElementById('bq');
+    if ($bq) $bq.oninput = () => {
+      const norm = (x) => x.toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i');
+      const v = norm($bq.value.trim()); if (v.length < 2) return;
+      document.getElementById('bres').innerHTML = state.players.filter((p) => (!q.zone || p.zone === q.zone) && norm(p.name + ' ' + p.team).includes(v)).slice(0, 40)
+        .map((p) => `<button class="pick" data-a="p${p.id}">${shirt(kitFor(p), 32)}<span class="grow"><b>${esc(p.name)}</b><br><span class="small muted">${esc(p.team)} · ${esc(p.position)}</span></span></button>`).join('') || '<p class="muted center">Sonuç yok</p>';
+    };
+    return;
+  }
+  const list = state.players.filter((p) => p.team === team && (!q.zone || p.zone === q.zone)).sort((a, b) => (a.number || 99) - (b.number || 99));
+  openSheet(`${head}<div class="scroll">${list.map((p) => `<button class="pick" data-a="p${p.id}">${shirt(kitFor(p), 32)}<span class="grow"><b>${esc(p.name)}</b> ${statusTag(p)}<br><span class="small muted">${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span></span></button>`).join('')}</div>`,
+    (a) => { if (a === 'close') return closeSheet(); if (a === 'back') return chooseBonus(q, weekId, onPick); if (a[0] === 'p') pick(a.slice(1)); });
+}
+
+async function renderBonus() {
+  const w = currentWeek();
+  if (!w) { $app.innerHTML = `<button class="linkbtn" id="back">← Kadrom</button><div class="card muted">Henüz açık bir hafta yok.</div>`; document.getElementById('back').onclick = () => go('squad'); return; }
+  const closed = isClosed(w);
+  const [ans, res] = await Promise.all([
+    sb.from('bonus_answers').select('q,answer').eq('week_id', w.id).eq('user_id', state.user.id),
+    sb.from('bonus_results').select('q,answer').eq('week_id', w.id)
+  ]);
+  const mine = new Map((ans.data || []).map((x) => [x.q, x.answer]));
+  const results = res.data || [];
+  const correct = BONUS_Q.filter((q) => mine.has(q.key) && results.some((r) => r.q === q.key && r.answer === mine.get(q.key))).length;
+  $app.innerHTML = `
+    <div class="row between"><button class="linkbtn" id="back">← Kadrom</button><span class="small muted">${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
+    <h1>🎯 Haftanın soruları</h1>
+    <p class="small muted">${w.id}. hafta · Her doğru cevap <b class="gold">+2 puan</b>. Eşitlik olursa hepsi doğru sayılır. Cevapların otomatik kaydedilir.</p>
+    ${closed && results.length ? `<div class="card row"><div class="grow"><div class="small muted">Bu hafta bildiğin</div><div class="display gold" style="font-size:34px">${correct}/${BONUS_Q.length}</div></div><div class="display accent" style="font-size:30px">+${correct * 2} P</div></div>` : ''}
+    ${BONUS_Q.map((q) => {
+      const a = mine.get(q.key), rs = results.filter((r) => r.q === q.key), done = rs.length > 0, ok = done && a && rs.some((r) => r.answer === a);
+      return `<button class="card bonusq ${closed ? '' : 'open'}" data-q="${q.key}" ${closed ? 'disabled' : ''}>
+        <div class="row"><span style="font-size:24px">${q.icon}</span><b class="grow" style="text-align:left">${q.title}</b>${done ? `<span class="${ok ? 'okmark' : 'nomark'}">${ok ? '✓ +2' : '✗'}</span>` : closed ? '' : `<span class="accent small">${a ? 'Değiştir' : 'Seç →'}</span>`}</div>
+        <div class="bonusans">${a ? bonusLabel(q, a) : '<span class="muted small">Henüz cevaplamadın</span>'}</div>
+        ${done ? `<div class="small muted" style="text-align:left">Doğru cevap: ${rs.map((r) => bonusLabel(q, r.answer)).join(' · ')}</div>` : ''}
+      </button>`;
+    }).join('')}`;
+  document.getElementById('back').onclick = () => go('squad');
+  if (!closed) $app.querySelectorAll('[data-q]').forEach((b) => { b.onclick = () => {
+    const q = BONUS_Q.find((x) => x.key === b.dataset.q);
+    chooseBonus(q, w.id, async (v) => {
+      const { error } = await sb.from('bonus_answers').upsert({ user_id: state.user.id, week_id: w.id, q: q.key, answer: String(v), updated_at: new Date().toISOString() });
+      if (error) return toast(error.message.includes('row-level') ? 'Bu hafta kapandı' : error.message);
+      toast('Cevabın kaydedildi ✓'); renderBonus();
+    });
+  }; });
 }
 
 // ---------- Sezonun 11'i ----------
@@ -300,6 +388,7 @@ function openRules() {
       ${step(3, 'Kapanıştan önce kaydet', 'Kadrolar haftanın ilk maçı başlarken kilitlenir. O ana kadar istediğin kadar değiştirebilirsin. Kapanıştan önce kimse kimsenin kadrosunu göremez.')}
       ${step(4, 'İki ayrı 11, iki ayrı puan', '<b>Veri 11\'i:</b> maç verilerine göre (Sofascore) haftanın en iyi 11\'i. <b>Taraftar 11\'i:</b> taraftar oylamasıyla seçilen 11. Her biri için ayrı puan ve sıralama tutulur.')}
       ${step(5, 'Puanlama', 'Haftanın 11\'ine giren her <b class="gold">Altın</b> oyuncun <b>2 puan</b>, Altın\'daki <b>kaptanın 4 puan</b>, her <b>Gümüş</b> oyuncun <b>1 puan</b> getirir. Örnek: Altın\'dan 2, Gümüş\'ten 1 kişi tutarsa 2×2 + 1 = 5 puan.')}
+      ${step('🎯', 'Haftanın soruları', 'Her hafta 7 soru: en çok gol atan takım ve oyuncu, en çok asist, en çok kurtarış yapan kaleci, kırmızı kart görecek oyuncu, en gollü ve en golsüz maç. Her doğru cevap <b class="gold">+2 puan</b>. Eşitlikte hepsi doğru sayılır.')}
       ${step('🏆', 'Sezonun 11\'i', 'Ayrı bir oyun: 11\'ini bir kez kilitlersin, sezon sonuna kadar değişmez. Puanın, oyuncularının kilitten sonraki maçlardaki Sofascore ortalamalarının ortalamasıdır.')}
       ${step(6, 'Arkadaşlarınla yarış', 'Sıralama sekmesinden lig kur, davet linkini gönder. Profil\'de rozetlerini, sezon istatistiklerini ve hangi mevkileri bildiğini görürsün.')}
       ${step(7, 'Hesabını koru', 'Profil\'den şifre belirle. Telefon değişirse "Zaten hesabım var" deyip kullanıcı adın ve şifrenle girersin.')}
@@ -375,6 +464,10 @@ async function renderSquad() {
     tow = (await sb.from('team_of_week').select('source,player_id').eq('week_id', w.id)).data || [];
   }
   const inTow = (id, src) => tow.some((t) => t.player_id === id && t.source === src);
+  const bonusRows = (await sb.from('bonus_answers').select('q,answer').eq('week_id', w.id).eq('user_id', state.user.id)).data || [];
+  const bonusCount = bonusRows.length;
+  let bonusCorrect = 0;
+  if (closed && bonusRows.length) { const br = (await sb.from('bonus_results').select('q,answer').eq('week_id', w.id)).data || []; bonusCorrect = bonusRows.filter((a) => br.some((r) => r.q === a.q && r.answer === a.answer)).length; }
   const d = state.draft, bench = state.squadMode === 'yedek';
   const filled = d.picks.filter(Boolean).length, subsFilled = d.subs.filter(Boolean).length;
   const tick = '<span class="hit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04111F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>';
@@ -398,6 +491,7 @@ async function renderSquad() {
     ${closed && tow.length ? `<div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>` : ''}
     <div class="pitch ${bench ? 'benchpitch' : ''}">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
     ${!closed && d.picks.some((id) => state.byId.get(id)?.status) ? `<div class="lock" style="border-color:var(--bad); color:var(--text)">⚠️ Kadronda ${d.picks.map((id) => state.byId.get(id)).filter((p) => p?.status).map((p) => `<b>${esc(shortName(p.name))}</b> (${STATUS[p.status].toLocaleLowerCase('tr')})`).join(', ')} var. Oynamazsa 11'e giremez.</div>` : ''}
+    <button class="card row" id="bonus-card" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%; border-color:var(--accent)"><span style="font-size:24px">🎯</span><span class="grow"><b>Haftanın soruları</b> <span class="small muted">· ${bonusCount}/${BONUS_Q.length} cevaplandı</span><br><span class="small muted">En gollü maç, golcü, kaleci… Her doğru cevap +2 puan.</span></span><span class="accent">→</span></button>
     <p class="small muted" style="text-align:center">${bench
       ? (closed && tow.length ? 'Yeşil tikli Gümüş oyuncular 11\'e girdi (her biri 1 puan).' : 'Gümüş 11 ikinci tahminin: buradan 11\'e giren her oyuncu <b>1 puan</b>. Altın 11\'dekilerle aynı oyuncu olamaz.')
       : closed ? (tow.length ? 'Yeşil tikli Altın oyuncular 11\'e girdi (her biri 2 puan).' : 'Haftanın 11\'i henüz açıklanmadı.') : '<span class="gold"><b>Altın 11\'den tutan 2 puan, kaptan (C) tutarsa 4 puan.</b></span> Oyuncuya dokun: seç, değiştir ya da kaptan yap.'}</p>
@@ -419,8 +513,9 @@ async function renderSquad() {
     document.getElementById('save').onclick = saveSquad;
   }
   document.getElementById('fx2').onclick = () => openFixtures(w.id);
+  document.getElementById('bonus-card').onclick = () => go('bonus');
   const sh = document.getElementById('share');
-  if (sh) sh.onclick = () => shareCard(w, d, closed && tow.length ? { tow, source: state.source } : null);
+  if (sh) sh.onclick = () => shareCard(w, d, closed && tow.length ? { tow, source: state.source, bonus: bonusCorrect } : null);
 }
 
 function onSlot(i) {
@@ -646,6 +741,9 @@ async function computeStats() {
   const tow = closedIds.length ? ((await sb.from('team_of_week').select('week_id,source,player_id').in('week_id', closedIds)).data || []) : [];
   const set = (w, s) => new Set(tow.filter((t) => t.week_id === w && t.source === s).map((t) => t.player_id));
   const per = { veri: [], taraftar: [] };
+  const myBonus = closedIds.length ? ((await sb.from('bonus_answers').select('week_id,q,answer').eq('user_id', state.user.id).in('week_id', closedIds)).data || []) : [];
+  const bonusRes = closedIds.length ? ((await sb.from('bonus_results').select('week_id,q,answer').in('week_id', closedIds)).data || []) : [];
+  const bonusPts = (w) => 2 * myBonus.filter((a) => a.week_id === w && bonusRes.some((r) => r.week_id === w && r.q === a.q && r.answer === a.answer)).length;
   for (const p of preds) {
     if (!closedIds.includes(p.week_id)) continue;
     for (const s of ['veri', 'taraftar']) {
@@ -654,7 +752,7 @@ async function computeStats() {
       const hitIdx = p.picks.map((id, i) => (st.has(id) ? i : -1)).filter((i) => i >= 0);
       const silverHits = (p.subs || []).filter((id) => id && st.has(id)).length;
       const capHit = st.has(p.captain);
-      const points = hitIdx.length * 2 + (capHit ? 2 : 0) + silverHits;
+      const points = hitIdx.length * 2 + (capHit ? 2 : 0) + silverHits + bonusPts(p.week_id);
       per[s].push({ week: p.week_id, picks: p.picks, hitIdx, hits: hitIdx.length, silverHits, capHit, points });
     }
   }
@@ -759,7 +857,7 @@ async function shareCard(w, d, result) {
   const inSet = result ? new Set(result.tow.filter((t) => t.source === result.source).map((t) => t.player_id)) : null;
   const eff = d.picks;
   if (inSet) {
-    const pts = d.picks.reduce((a, id) => a + (inSet.has(id) ? (id === d.captain ? 4 : 2) : 0), 0) + (d.subs || []).filter((id) => id && inSet.has(id)).length;
+    const pts = d.picks.reduce((a, id) => a + (inSet.has(id) ? (id === d.captain ? 4 : 2) : 0), 0) + (d.subs || []).filter((id) => id && inSet.has(id)).length + 2 * (result.bonus || 0);
     const label = `${result.source === 'veri' ? 'Veri' : 'Taraftar'} 11'i: ${fmtP(pts)} P`;
     x.font = '800 46px Barlow, sans-serif'; const lw = x.measureText(label).width + 60;
     rr(W - 70 - lw, 240, lw, 70, 35); x.fillStyle = '#3CC8FF'; x.fill(); x.fillStyle = '#04111F'; x.fillText(label, W - 70 - lw + 30, 292);
@@ -837,6 +935,11 @@ async function renderAdmin() {
       <button class="btn" id="asave">Bu 11'i kaydet</button>
     </div>
     <div class="card" style="display:flex; flex-direction:column; gap:10px">
+      <h2>🎯 Soru sonuçları (${sel || '–'}. hafta)</h2>
+      <p class="small muted">Hafta bitince her sorunun doğru cevabını ekle. Eşitlik varsa birden fazla ekleyebilirsin; hepsi doğru sayılır.</p>
+      <div id="bres-admin" style="display:flex; flex-direction:column; gap:8px"></div>
+    </div>
+    <div class="card" style="display:flex; flex-direction:column; gap:10px">
       <h2>🏆 Sezon puanları (Sofascore)</h2>
       <p class="small muted">Kilitli Sezon 11'lerindeki oyuncular. Sofascore'daki <b>Süper Lig sezon ortalamasını</b> ve <b>maç sayısını</b> gir, tarihi seç, kaydet.</p>
       <label>Ölçüm tarihi<input id="rsdate" type="date"></label>
@@ -886,6 +989,24 @@ async function renderAdmin() {
     document.querySelectorAll('[data-clear]').forEach((b) => { b.onclick = () => setStatus(+b.dataset.clear, null, null); });
   };
   drawFlagged();
+  // Soru sonuçları
+  const drawBonusAdmin = async () => {
+    if (!sel) return;
+    const rs = (await sb.from('bonus_results').select('q,answer').eq('week_id', sel)).data || [];
+    document.getElementById('bres-admin').innerHTML = BONUS_Q.map((q) => `<div class="card" style="padding:10px 12px; display:flex; flex-direction:column; gap:6px"><b>${q.icon} ${q.title}</b>
+      ${rs.filter((r) => r.q === q.key).map((r) => `<div class="row" style="gap:8px"><span class="grow">${bonusLabel(q, r.answer)}</span><button class="btn subtle" data-brdel="${q.key}|${esc(r.answer)}" style="min-height:32px; padding:0 10px">✕</button></div>`).join('') || '<span class="small muted">Henüz girilmedi</span>'}
+      <button class="btn subtle" data-bradd="${q.key}" style="min-height:36px">+ Doğru cevap ekle</button></div>`).join('');
+    document.querySelectorAll('[data-bradd]').forEach((b) => { b.onclick = () => {
+      const q = BONUS_Q.find((x) => x.key === b.dataset.bradd);
+      chooseBonus(q, sel, async (v) => { const { error } = await sb.from('bonus_results').upsert({ week_id: sel, q: q.key, answer: String(v) }); if (error) return toast(error.message); toast('Eklendi, puanlar güncellendi ✓'); drawBonusAdmin(); });
+    }; });
+    document.querySelectorAll('[data-brdel]').forEach((b) => { b.onclick = async () => {
+      const [qk, ...rest] = b.dataset.brdel.split('|');
+      const { error } = await sb.from('bonus_results').delete().eq('week_id', sel).eq('q', qk).eq('answer', rest.join('|'));
+      if (error) return toast(error.message); drawBonusAdmin();
+    }; });
+  };
+  await drawBonusAdmin();
   // Sezon puanları
   {
     const today = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);

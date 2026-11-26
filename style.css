@@ -144,3 +144,13 @@ label { font-size: 13px; color: var(--muted); display: flex; flex-direction: col
 .seasonpitch { border-color: rgba(255,201,60,.55); background: linear-gradient(180deg, #1B2A44 0%, #0E1B30 100%); }
 .slot .rating { font: 800 13px Barlow, sans-serif; color: var(--accent-ink); background: var(--gold); border-radius: 6px; padding: 1px 6px; margin-top: -1px; }
 .slot .rating.none { background: var(--line); color: var(--muted); }
+
+/* Haftanın soruları */
+.bonusq { display: flex; flex-direction: column; gap: 8px; width: 100%; color: var(--text); font: inherit; text-align: left; }
+.bonusq.open { cursor: pointer; }
+.bonusq.open:active { transform: scale(.99); }
+.bonusq[disabled] { opacity: 1; }
+.bonusans { display: flex; align-items: center; gap: 8px; font-weight: 600; min-height: 26px; }
+.okmark { background: var(--good); color: var(--accent-ink); font: 800 14px Barlow, sans-serif; border-radius: 8px; padding: 2px 8px; }
+.nomark { background: rgba(255,138,122,.2); color: var(--bad); font: 800 14px Barlow, sans-serif; border-radius: 8px; padding: 2px 8px; }
+button.match { width: 100%; }
