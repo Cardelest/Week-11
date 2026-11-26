@@ -206,7 +206,7 @@ function go(tab, fromPop = false) {
   state.tab = tab;
   $tabs.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   window.scrollTo(0, 0);
-  Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin })[tab]())
+  Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason })[tab]())
     .catch((e) => { console.error(e); $app.innerHTML = `<div class="card">Bir sorun oldu: ${esc(e.message)}<br><br><button class="btn" onclick="location.reload()">Yenile</button></div>`; });
 }
 
@@ -226,6 +226,69 @@ function openFixtures(weekId) {
     </div>`, (a) => { if (a === 'close') closeSheet(); });
 }
 
+// ---------- Sezonun 11'i ----------
+async function saveSeasonDraft() {
+  const { error } = await sb.from('season_picks').upsert({ user_id: state.user.id, picks: state.seasonDraft.picks, updated_at: new Date().toISOString() });
+  if (error) toast('Kaydedilemedi: ' + error.message);
+}
+async function renderSeason() {
+  const { data: row } = await sb.from('season_picks').select('*').eq('user_id', state.user.id).maybeSingle();
+  state.seasonDraft = { picks: row?.picks ? row.picks.slice() : Array(11).fill(null), locked_at: row?.locked_at || null };
+  const sd = state.seasonDraft, locked = !!sd.locked_at, filled = sd.picks.filter(Boolean).length;
+  let mine = [], board = [];
+  if (locked) mine = (await sb.from('season_my_players').select('slot,avg_since,apps_since,start_on,end_on').order('slot')).data || [];
+  board = (await sb.from('season_leaderboard').select('*').order('score', { ascending: false }).limit(200)).data || [];
+  const bySlot = new Map(mine.map((m) => [m.slot - 1, m]));
+  const started = mine.length > 0;
+  const teamScore = started ? (mine.reduce((a, m) => a + Number(m.avg_since ?? 6), 0) / 11) : null;
+  const fmt2 = (v) => Number(v).toLocaleString('tr-TR', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const slot = (i) => {
+    const p = sd.picks[i] ? state.byId.get(sd.picks[i]) : null, m = bySlot.get(i);
+    return `<button class="slot ${p ? '' : 'empty'}" data-i="${i}" aria-label="${p ? esc(p.name) : 'Sezon ' + SLOT_LABEL[i] + ' seç'}">
+      <span class="shirt">${shirt(kitFor(p))}</span>
+      <span class="name">${p ? esc(shortName(p.name)) : '+ ' + SLOT_LABEL[i]}</span>${locked && p ? `<span class="rating ${m?.avg_since ? '' : 'none'}">${m?.avg_since ? fmt2(m.avg_since) : started ? '–' : '⏳'}</span>` : ''}</button>`;
+  };
+  $app.innerHTML = `
+    <div class="row between"><button class="linkbtn" id="back">← Ana Sayfa</button>${locked ? '<span class="pill" style="border-color:var(--gold); color:var(--gold)">🔒 Kilitli</span>' : `<span class="small muted">${filled}/11</span>`}</div>
+    <h1>🏆 Sezonun <span class="gold" style="font-style:italic">11'i</span></h1>
+    ${locked
+      ? `<div class="card row"><div class="grow"><div class="small muted">Takım ortalaman</div><div class="display gold" style="font-size:40px">${teamScore !== null ? fmt2(teamScore) : '–'}</div></div><div class="small muted" style="text-align:right">Kilit: ${fmtDate(sd.locked_at)}${started ? `<br>Son ölçüm: ${new Date(mine[0].end_on).toLocaleDateString('tr-TR')}` : ''}</div></div>
+         ${started ? '' : '<div class="lock">⏳ Puanlar ilk Sofascore ölçümünden sonra görünmeye başlayacak. Kilitlediğin günden sonraki maçlar sayılır.</div>'}`
+      : `<p class="muted small">11'ini kur ve <b class="gold">bir kez kilitle</b>. Kilitledikten sonra sezon sonuna kadar değiştiremezsin. Puanın, oyuncularının <b>kilitten sonraki maçlardaki Sofascore ortalamalarının</b> ortalaması olur.</p>`}
+    <div class="pitch seasonpitch">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
+    ${locked
+      ? '<button class="btn subtle" disabled>🔓 Kilidi aç (yakında)</button>'
+      : `<button class="btn big" id="lock" ${filled === 11 ? '' : 'disabled'} style="background:var(--gold)">${filled === 11 ? '🔒 Kilitle' : `${11 - filled} oyuncu daha seç`}</button>
+         <p class="small muted center" style="padding:0">Seçimlerin otomatik kaydediliyor. Kilitlemeden önce istediğin kadar değiştirebilirsin.</p>`}
+    <h2 style="margin-top:6px">Sezon sıralaması</h2>
+    <div class="card list" style="padding:6px">
+      ${board.length ? board.map((r, k) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank" ${k < 3 ? 'style="color:var(--gold)"' : ''}>${k + 1}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}<br><span class="small muted" style="font-weight:500">${r.apps} maç</span></span><span class="pts">${fmt2(r.score)}</span></div>`).join('') : '<p class="muted center">Sıralama ilk ölçümden sonra oluşacak.</p>'}
+    </div>
+    <p class="small muted">Kilitten sonra hiç puan almayan (oynamayan) oyuncu 6,00 sayılır. Ortalamalar ayda bir Sofascore'dan güncellenir.</p>`;
+  document.getElementById('back').onclick = () => go('home');
+  if (!locked) {
+    $app.querySelectorAll('.slot').forEach((b) => { b.onclick = () => {
+      const i = +b.dataset.i, id = sd.picks[i];
+      if (!id) return openPicker(i);
+      const p = state.byId.get(id);
+      openSheet(`<div class="row">${shirt(kitFor(p), 44)}<div class="grow"><b>${esc(p.name)}</b><div class="small muted">${esc(p.team)} · ${esc(p.position)}</div></div></div>
+        <button class="btn subtle" data-a="swap">🔁 Başka oyuncuyla değiştir</button><button class="btn subtle" data-a="remove" style="color:var(--bad)">✕ Çıkar</button>`, (a) => {
+        if (a === 'swap') { closeSheet(); return openPicker(i); }
+        if (a === 'remove') { sd.picks[i] = null; closeSheet(); saveSeasonDraft().then(renderSeason); }
+      });
+    }; });
+    const lk = document.getElementById('lock');
+    if (lk) lk.onclick = async () => {
+      if (!confirm('Sezonun 11\'ini kilitliyorsun. Sezon sonuna kadar DEĞİŞTİREMEZSİN. Emin misin?')) return;
+      lk.disabled = true;
+      await saveSeasonDraft();
+      const { error } = await sb.rpc('lock_season');
+      if (error) { toast(error.message); lk.disabled = false; return; }
+      toast('Sezonun 11\'i kilitlendi 🔒'); renderSeason();
+    };
+  }
+}
+
 // ---------- Nasıl oynanır ----------
 function openRules() {
   const step = (n, t, x) => `<div class="row" style="align-items:flex-start"><span class="num">${n}</span><div class="grow"><b>${t}</b><p class="small muted" style="margin-top:2px">${x}</p></div></div>`;
@@ -237,6 +300,7 @@ function openRules() {
       ${step(3, 'Kapanıştan önce kaydet', 'Kadrolar haftanın ilk maçı başlarken kilitlenir. O ana kadar istediğin kadar değiştirebilirsin. Kapanıştan önce kimse kimsenin kadrosunu göremez.')}
       ${step(4, 'İki ayrı 11, iki ayrı puan', '<b>Veri 11\'i:</b> maç verilerine göre (Sofascore) haftanın en iyi 11\'i. <b>Taraftar 11\'i:</b> taraftar oylamasıyla seçilen 11. Her biri için ayrı puan ve sıralama tutulur.')}
       ${step(5, 'Puanlama', 'Haftanın 11\'ine giren her <b class="gold">Altın</b> oyuncun <b>2 puan</b>, Altın\'daki <b>kaptanın 4 puan</b>, her <b>Gümüş</b> oyuncun <b>1 puan</b> getirir. Örnek: Altın\'dan 2, Gümüş\'ten 1 kişi tutarsa 2×2 + 1 = 5 puan.')}
+      ${step('🏆', 'Sezonun 11\'i', 'Ayrı bir oyun: 11\'ini bir kez kilitlersin, sezon sonuna kadar değişmez. Puanın, oyuncularının kilitten sonraki maçlardaki Sofascore ortalamalarının ortalamasıdır.')}
       ${step(6, 'Arkadaşlarınla yarış', 'Sıralama sekmesinden lig kur, davet linkini gönder. Profil\'de rozetlerini, sezon istatistiklerini ve hangi mevkileri bildiğini görürsün.')}
       ${step(7, 'Hesabını koru', 'Profil\'den şifre belirle. Telefon değişirse "Zaten hesabım var" deyip kullanıcı adın ve şifrenle girersin.')}
       <p class="small muted">Haftanın 11'i ücretsiz bir tahmin oyunudur. Para ile oynanmaz, para ödülü yoktur.</p>
@@ -271,6 +335,7 @@ async function renderHome() {
     </div>
     ${state.hasPass ? '' : `<button class="card row" id="protect" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; border-color:var(--gold)"><span class="grow"><b class="gold">Hesabını koru</b><br><span class="small muted">Şifre belirle, telefon değişse de puanların kaybolmasın.</span></span><span class="gold">→</span></button>`}
     ${ow ? `<button class="card row" id="fixtures" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%"><div class="grow"><div style="font-weight:700">${ow.id}. Hafta <span class="accent small">· Maçları gör →</span></div><div class="small muted">Kapanış: ${fmtDate(ow.deadline)}</div></div><span class="pill">${countdown(ow.deadline)}</span></button>` : ''}
+    <button class="card row" id="season-card" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%; border-color:var(--gold); background:linear-gradient(135deg,#2A2410,var(--card) 60%)"><span style="font-size:26px">🏆</span><span class="grow"><b class="gold">Sezonun 11'i</b><br><span class="small muted">11'ini bir kez kilitle, sezon sonuna kadar Sofascore ortalamalarıyla yarış.</span></span><span class="gold">→</span></button>
     ${ow ? `<button class="card row" id="invite-friends" style="text-align:left; color:var(--text); font:inherit; cursor:pointer; width:100%"><span style="font-size:26px">👥</span><span class="grow"><b>Arkadaşlarınla yarış</b><br><span class="small muted">Lig kur, davet et, kadro kurmayanlara hatırlat.</span></span><span class="accent">→</span></button>` : ''}
     ${lw ? `
       <h2 style="margin-top:6px">${lw.id}. Hafta sonucun</h2>
@@ -287,6 +352,7 @@ async function renderHome() {
   const pr = document.getElementById('protect'); if (pr) pr.onclick = () => go('profile');
   const fx = document.getElementById('fixtures'); if (fx) fx.onclick = () => openFixtures(ow.id);
   document.getElementById('rules').onclick = openRules;
+  document.getElementById('season-card').onclick = () => go('season');
   const ins = document.getElementById('install'); if (ins) ins.onclick = installApp;
   const inv = document.getElementById('invite-friends'); if (inv) inv.onclick = () => go('table');
 }
@@ -401,8 +467,23 @@ function openMove(i) {
   });
 }
 
+// Seçim ekranı hangi kadroya yazıyor: haftalık Altın/Gümüş ya da Sezonun 11'i
+function pickerCtx() {
+  if (state.tab === 'season') {
+    const sd = state.seasonDraft;
+    return { title: '🏆 Sezon · ', d: { week: currentWeek()?.id }, arr: sd.picks, all: sd.picks,
+      set: (i, id) => { sd.picks[i] = id; saveSeasonDraft(); renderSeason(); } };
+  }
+  const d = state.draft, bench = state.squadMode === 'yedek';
+  return { title: bench ? 'Gümüş · ' : 'Altın · ', d, arr: bench ? d.subs : d.picks, all: d.picks.concat(d.subs),
+    set: (i, id) => {
+      if (bench) d.subs[i] = id; else { const old = d.picks[i]; d.picks[i] = id; if (d.captain === old) d.captain = null; }
+      d.dirty = true; renderSquad();
+    } };
+}
+
 function openPicker(i, team = null) {
-  const zone = SLOT_LABEL[i], d = state.draft;
+  const ctx = pickerCtx(), zone = SLOT_LABEL[i], d = ctx.d;
   const pool = state.players.filter((p) => fitsSlot(p, i));
   // Takım sırası: bu haftanın maçlarına göre (rakipler yan yana), kalanlar alfabetik
   const order = [];
@@ -410,7 +491,7 @@ function openPicker(i, team = null) {
   [...new Set(pool.map((p) => p.team))].sort((a, b) => a.localeCompare(b, 'tr')).forEach((t) => { if (!order.includes(t)) order.push(t); });
   const teams = order.filter((t) => pool.some((p) => p.team === t));
   openSheet(`
-    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}${team ? crest(team, 36) : ''}<h2 class="grow">${team ? esc(team) : (state.squadMode === 'yedek' ? 'Gümüş · ' : 'Altın · ') + zone + ' seç'}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
+    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}${team ? crest(team, 36) : ''}<h2 class="grow">${team ? esc(team) : ctx.title + zone + ' seç'}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
     ${team ? (opponentOf(d.week, team) ? `<div class="small accent">Bu hafta: vs ${esc(opponentOf(d.week, team))}</div>` : '') : '<input id="q" type="search" placeholder="Ya da oyuncu adı yaz" autocomplete="off">'}
     <div class="scroll" id="res"></div>`, (a) => {
     if (a === 'close') closeSheet();
@@ -419,19 +500,16 @@ function openPicker(i, team = null) {
   const $res = document.getElementById('res'), $q = document.getElementById('q');
   const norm = (s) => s.toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i');
   const playerList = (list) => list.map((p) => {
-    const bench = state.squadMode === 'yedek', own = (bench ? d.subs : d.picks)[i];
-    const taken = (d.picks.includes(p.id) || d.subs.includes(p.id)) && own !== p.id;
+    const taken = ctx.all.includes(p.id) && ctx.arr[i] !== p.id;
     return `<button class="pick" data-id="${p.id}" ${taken ? 'disabled' : ''}>${shirt(kitFor(p, i), 34)}<span class="grow"><b>${esc(p.name)}</b> ${statusTag(p)}<br><span class="small muted">${team ? '' : esc(p.team) + ' · '}${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span>${!team && opponentOf(d.week, p.team) ? `<br><span class="small accent">vs ${esc(opponentOf(d.week, p.team))}</span>` : ''}</span>${taken ? '<span class="small muted">Kadroda</span>' : ''}</button>`;
   }).join('') || '<p class="muted center">Sonuç yok</p>';
   const bindPicks = () => $res.querySelectorAll('.pick').forEach((b) => { b.onclick = () => {
-    if (state.squadMode === 'yedek') { d.subs[i] = +b.dataset.id; }
-    else { const old = d.picks[i]; d.picks[i] = +b.dataset.id; if (d.captain === old) d.captain = null; }
-    d.dirty = true; closeSheet(); renderSquad();
+    closeSheet(); ctx.set(i, +b.dataset.id);
   }; });
   const teamGrid = () => {
     $res.innerHTML = `<div class="teamgrid">${teams.map((t) => {
       const k = KITS[t] || EMPTY_KIT, n = pool.filter((p) => p.team === t).length;
-      const mine = pool.some((p) => p.team === t && (d.picks.includes(p.id) || d.subs.includes(p.id)));
+      const mine = pool.some((p) => p.team === t && ctx.all.includes(p.id));
       return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${crest(t, 44)}<b>${esc(t)}</b><span class="small muted">${n} oyuncu</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
     }).join('')}</div>`;
     $res.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => openPicker(i, b.dataset.team); });
@@ -759,6 +837,14 @@ async function renderAdmin() {
       <button class="btn" id="asave">Bu 11'i kaydet</button>
     </div>
     <div class="card" style="display:flex; flex-direction:column; gap:10px">
+      <h2>🏆 Sezon puanları (Sofascore)</h2>
+      <p class="small muted">Kilitli Sezon 11'lerindeki oyuncular. Sofascore'daki <b>Süper Lig sezon ortalamasını</b> ve <b>maç sayısını</b> gir, tarihi seç, kaydet.</p>
+      <label>Ölçüm tarihi<input id="rsdate" type="date"></label>
+      <div id="rslist" style="display:flex; flex-direction:column; gap:6px"></div>
+      <button class="btn" id="rssave">Ölçümü kaydet</button>
+      <div id="locks" style="display:flex; flex-direction:column; gap:4px"></div>
+    </div>
+    <div class="card" style="display:flex; flex-direction:column; gap:10px">
       <h2>Sakat / cezalı oyuncular</h2>
       <div id="flagged" style="display:flex; flex-direction:column; gap:4px"></div>
       <input id="sq" type="search" placeholder="Oyuncu ara ve durum ver" autocomplete="off">
@@ -800,6 +886,38 @@ async function renderAdmin() {
     document.querySelectorAll('[data-clear]').forEach((b) => { b.onclick = () => setStatus(+b.dataset.clear, null, null); });
   };
   drawFlagged();
+  // Sezon puanları
+  {
+    const today = new Date(Date.now() + 3 * 3600e3).toISOString().slice(0, 10);
+    document.getElementById('rsdate').value = today;
+    const [sp, rs] = await Promise.all([
+      sb.from('season_picks').select('user_id,picks,locked_at').not('locked_at', 'is', null),
+      sb.from('rating_snapshots').select('taken_on,player_id,avg_rating,apps').order('taken_on', { ascending: false }).limit(5000)
+    ]);
+    const latest = new Map(); (rs.data || []).forEach((r) => { if (!latest.has(r.player_id)) latest.set(r.player_id, r); });
+    const ids = [...new Set((sp.data || []).flatMap((x) => x.picks))].filter(Boolean);
+    const list = ids.map((id) => state.byId.get(id)).filter(Boolean).sort((a, b) => a.team.localeCompare(b.team, 'tr') || a.name.localeCompare(b.name, 'tr'));
+    document.getElementById('rslist').innerHTML = list.length ? list.map((p) => { const l = latest.get(p.id); return `<div class="row" style="gap:8px"><span class="grow small"><b>${esc(p.name)}</b><br><span class="muted">${esc(p.team)}${l ? ` · son: ${l.avg_rating} / ${l.apps} maç (${l.taken_on})` : ''}</span></span><input data-avg="${p.id}" inputmode="decimal" placeholder="Ort." value="${l ? l.avg_rating : ''}" style="width:70px; min-height:40px; padding:0 8px"><input data-apps="${p.id}" inputmode="numeric" placeholder="Maç" value="${l ? l.apps : ''}" style="width:60px; min-height:40px; padding:0 8px"></div>`; }).join('') : '<p class="small muted">Henüz kilitlenmiş Sezon 11\'i yok.</p>';
+    const users = (sp.data || []);
+    if (users.length) {
+      const names = new Map(((await sb.from('profiles').select('id,username').in('id', users.map((u) => u.user_id))).data || []).map((x) => [x.id, x.username]));
+      document.getElementById('locks').innerHTML = '<div class="small muted" style="margin-top:6px">Kilitli kullanıcılar</div>' + users.map((u) => `<div class="row card" style="padding:8px 12px"><span class="grow small"><b>${esc(names.get(u.user_id) || '?')}</b> · ${fmtDate(u.locked_at)}</span><button class="btn subtle" data-unlock="${u.user_id}" style="min-height:36px; padding:0 12px">Kilidi aç</button></div>`).join('');
+      document.querySelectorAll('[data-unlock]').forEach((b) => { b.onclick = async () => {
+        if (!confirm('Bu kullanıcının Sezon 11\'inin kilidi açılsın mı?')) return;
+        const { error } = await sb.rpc('admin_unlock_season', { u: b.dataset.unlock });
+        if (error) return toast(error.message); toast('Kilit açıldı'); renderAdmin();
+      }; });
+    }
+    document.getElementById('rssave').onclick = async () => {
+      const taken_on = document.getElementById('rsdate').value;
+      const rows = list.map((p) => ({ taken_on, player_id: p.id, avg_rating: parseFloat((document.querySelector(`[data-avg="${p.id}"]`).value || '').replace(',', '.')), apps: parseInt(document.querySelector(`[data-apps="${p.id}"]`).value, 10) }))
+        .filter((r) => !isNaN(r.avg_rating) && !isNaN(r.apps));
+      if (!rows.length) return toast('Girilen değer yok');
+      const { error } = await sb.from('rating_snapshots').upsert(rows);
+      if (error) return toast(error.message);
+      toast(`${rows.length} oyuncunun ölçümü kaydedildi ✓`);
+    };
+  }
   const $sq = document.getElementById('sq'), $sres = document.getElementById('sres');
   $sq.oninput = () => {
     const q = norm($sq.value.trim());
