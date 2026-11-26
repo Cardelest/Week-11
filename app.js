@@ -472,7 +472,7 @@ function pickerCtx() {
   if (state.tab === 'season') {
     const sd = state.seasonDraft;
     return { title: '🏆 Sezon · ', d: { week: currentWeek()?.id }, arr: sd.picks, all: sd.picks,
-      set: (i, id) => { sd.picks[i] = id; saveSeasonDraft(); renderSeason(); } };
+      set: (i, id) => { sd.picks[i] = id; saveSeasonDraft().then(renderSeason); } };
   }
   const d = state.draft, bench = state.squadMode === 'yedek';
   return { title: bench ? 'Gümüş · ' : 'Altın · ', d, arr: bench ? d.subs : d.picks, all: d.picks.concat(d.subs),
