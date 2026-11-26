@@ -5,9 +5,28 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#07101F">
   <title>Haftanın 11'i</title>
+  <meta name="description" content="Süper Lig'de haftanın en iyi 11'ini tahmin et, arkadaşlarınla yarış. 4-4-2 kadronu kur, kaptanını seç, puanı topla.">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" type="image/png" href="favicon.png">
+  <link rel="apple-touch-icon" href="apple-touch-icon.png">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Haftanın 11'i">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Haftanın 11'i">
+  <meta property="og:title" content="Haftanın 11'i · Tahmin et, arkadaşlarınla yarış">
+  <meta property="og:description" content="Süper Lig'de haftanın en iyi 11'ini tahmin et. 4-4-2 kadronu kur, kaptanını seç, puanı topla.">
+  <meta property="og:url" content="https://cardelest.github.io/Week-11/">
+  <meta property="og:image" content="https://cardelest.github.io/Week-11/og.png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:locale" content="tr_TR">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:image" content="https://cardelest.github.io/Week-11/og.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Barlow:ital,wght@0,600;0,700;0,800;1,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="style.css?v=11">
+  <link rel="stylesheet" href="style.css?v=12">
 </head>
 <body>
   <main id="app" aria-live="polite">
@@ -27,6 +46,7 @@
   </nav>
   <div id="sheet" class="sheet" hidden></div>
   <div id="toast" class="toast" hidden></div>
-  <script type="module" src="app.js?v=11"></script>
+  <script>if ('serviceWorker' in navigator) navigator.serviceWorker.register('sw.js').catch(() => {});</script>
+  <script type="module" src="app.js?v=12"></script>
 </body>
 </html>

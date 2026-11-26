@@ -1,0 +1,17 @@
+{
+  "name": "Haftanın 11'i",
+  "short_name": "Haftanın 11'i",
+  "description": "Süper Lig'de haftanın en iyi 11'ini tahmin et, arkadaşlarınla yarış.",
+  "lang": "tr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#07101F",
+  "theme_color": "#07101F",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icon-maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ]
+}
