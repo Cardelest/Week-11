@@ -114,6 +114,7 @@ async function enterApp() {
   if (pending) {
     try { sessionStorage.removeItem('pendingLeague'); } catch {}
     const { data, error } = await sb.rpc('join_league', { c: pending });
+    state.leaguesCache = null;
     if (!error) { state.league = data; toast('Lige katıldın ✓'); return go('table'); }
     toast(error.message);
   }
@@ -207,7 +208,11 @@ function go(tab, fromPop = false) {
   document.body.dataset.theme = tab;
   $tabs.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   window.scrollTo(0, 0);
+  const nav = (state.nav = (state.nav || 0) + 1);
+  clearTimeout(state.navTimer);
+  state.navTimer = setTimeout(() => { if (state.nav === nav) $app.classList.add('loading'); }, 90);
   Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason, bonus: renderBonus, league: renderLeague })[tab]())
+    .finally(() => { if (state.nav === nav) { clearTimeout(state.navTimer); $app.classList.remove('loading'); } })
     .catch((e) => { console.error(e); $app.innerHTML = `<div class="card">Bir sorun oldu: ${esc(e.message)}<br><br><button class="btn" onclick="location.reload()">Yenile</button></div>`; });
 }
 
@@ -232,7 +237,7 @@ async function renderLeague() {
   const view = state.leagueView || 'table';
   let body = '', note = '';
   if (view === 'table') {
-    const rows = (await sb.from('league_table').select('*').order('pos')).data || [];
+    const rows = state.lgTable || (state.lgTable = (await sb.from('league_table').select('*').order('pos')).data || []);
     const dot = (c) => `<span class="fdot f${c}">${c}</span>`;
     note = rows[0]?.after_week ? `${rows[0].after_week}. hafta sonu` : '';
     body = `<div class="card ltable" style="padding:6px 4px">
@@ -244,7 +249,8 @@ async function renderLeague() {
     <p class="small muted">Form: son 5 maç, en sağdaki en son maç. <span class="fdot fG">G</span> galibiyet <span class="fdot fB">B</span> beraberlik <span class="fdot fM">M</span> mağlubiyet. AV: averaj (attığı − yediği gol).<br><span style="color:#4ADE80">▌</span> Şampiyonlar Ligi yolu · <span style="color:var(--bad)">▌</span> küme düşme hattı</p>`;
   } else {
     const isGoal = view === 'goals';
-    const rows = (await sb.from(isGoal ? 'top_scorers' : 'top_assists').select('*').order(isGoal ? 'goals' : 'assists', { ascending: false }).order('name')).data || [];
+    const key = isGoal ? 'lgGoals' : 'lgAssists';
+    const rows = state[key] || (state[key] = (await sb.from(isGoal ? 'top_scorers' : 'top_assists').select('*').order(isGoal ? 'goals' : 'assists', { ascending: false }).order('name')).data || []);
     let rank = 0, prev = null;
     body = `<div class="card list" style="padding:6px">${rows.map((r, i) => { const v = isGoal ? r.goals : r.assists; if (v !== prev) { rank = i + 1; prev = v; }
       return `<div class="item"><span class="rank ${rank <= 3 ? 'r' + rank : ''}">${rank}</span>${crest(r.team, 26)}<span class="grow"><b>${esc(r.name)}</b><br><span class="small muted">${esc(r.team)}</span></span><span class="pts">${v}</span></div>`; }).join('') || '<p class="muted center">Henüz girilmedi.</p>'}</div>`;
@@ -438,11 +444,13 @@ async function installApp() {
 async function renderHome() {
   const ow = openWeek(), lw = lastClosedWeek();
   let mine = null, myScores = [], stats = [];
-  if (ow) mine = (await sb.from('predictions').select('week_id').eq('week_id', ow.id).eq('user_id', state.user.id).maybeSingle()).data;
-  if (lw) {
-    myScores = (await sb.from('week_scores').select('source,points').eq('week_id', lw.id).eq('user_id', state.user.id)).data || [];
-    stats = (await sb.from('pick_stats').select('player_id,picked_by,total_predictions').eq('week_id', lw.id).order('picked_by', { ascending: false }).limit(5)).data || [];
-  }
+  const none = Promise.resolve({ data: null });
+  const [r1, r2, r3] = await Promise.all([
+    ow ? sb.from('predictions').select('week_id').eq('week_id', ow.id).eq('user_id', state.user.id).maybeSingle() : none,
+    lw ? sb.from('week_scores').select('source,points').eq('week_id', lw.id).eq('user_id', state.user.id) : none,
+    lw ? sb.from('pick_stats').select('player_id,picked_by,total_predictions').eq('week_id', lw.id).order('picked_by', { ascending: false }).limit(5) : none,
+  ]);
+  mine = r1.data; myScores = r2.data || []; stats = r3.data || [];
   const score = (s) => myScores.find((x) => x.source === s)?.points;
   $app.innerHTML = `
     <div class="row between"><h1>Haftanın <span class="accent" style="font-style:italic">11'i</span></h1><span class="muted small">@${esc(state.profile.username)}</span></div>
@@ -481,7 +489,13 @@ async function renderSquad() {
   const w = currentWeek();
   if (!w) { $app.innerHTML = `<h1>Kadrom</h1><div class="card muted">Henüz açık bir hafta yok.</div>`; return; }
   const closed = isClosed(w);
-  const { data: pred } = await sb.from('predictions').select('*').eq('week_id', w.id).eq('user_id', state.user.id).maybeSingle();
+  const none = Promise.resolve({ data: null });
+  const [{ data: pred }, towR, bonusR, brR] = await Promise.all([
+    sb.from('predictions').select('*').eq('week_id', w.id).eq('user_id', state.user.id).maybeSingle(),
+    closed ? sb.from('team_of_week').select('source,player_id').eq('week_id', w.id) : none,
+    sb.from('bonus_answers').select('q,answer').eq('week_id', w.id).eq('user_id', state.user.id),
+    closed ? sb.from('bonus_results').select('q,answer').eq('week_id', w.id) : none,
+  ]);
   const draftKey = `h11-draft-${state.user.id}-${w.id}`;
   if (!state.draft || state.draft.week !== w.id) {
     state.draft = { week: w.id, picks: pred ? pred.picks.slice() : Array(11).fill(null), subs: pred?.subs ? pred.subs.slice() : Array(11).fill(null), captain: pred?.captain ?? null, dirty: false };
@@ -489,15 +503,12 @@ async function renderSquad() {
     if (!closed) { try { const saved = JSON.parse(localStorage.getItem(draftKey) || 'null'); if (saved?.dirty) { Object.assign(state.draft, saved, { week: w.id }); toast('Kaydetmediğin seçimlerin geri getirildi'); } } catch {} }
   }
   if (!closed) { try { state.draft.dirty ? localStorage.setItem(draftKey, JSON.stringify(state.draft)) : localStorage.removeItem(draftKey); } catch {} }
-  let tow = [];
-  if (closed) {
-    tow = (await sb.from('team_of_week').select('source,player_id').eq('week_id', w.id)).data || [];
-  }
+  const tow = towR.data || [];
   const inTow = (id, src) => tow.some((t) => t.player_id === id && t.source === src);
-  const bonusRows = (await sb.from('bonus_answers').select('q,answer').eq('week_id', w.id).eq('user_id', state.user.id)).data || [];
+  const bonusRows = bonusR.data || [];
   const bonusCount = bonusRows.length;
   let bonusCorrect = 0;
-  if (closed && bonusRows.length) { const br = (await sb.from('bonus_results').select('q,answer').eq('week_id', w.id)).data || []; bonusCorrect = bonusRows.filter((a) => br.some((r) => r.q === a.q && r.answer === a.answer)).length; }
+  if (closed && bonusRows.length) { const br = brR.data || []; bonusCorrect = bonusRows.filter((a) => br.some((r) => r.q === a.q && r.answer === a.answer)).length; }
   const d = state.draft, bench = state.squadMode === 'yedek';
   const filled = d.picks.filter(Boolean).length, subsFilled = d.subs.filter(Boolean).length;
   const tick = '<span class="hit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04111F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>';
@@ -663,21 +674,23 @@ async function saveSquad() {
 
 // ---------- Sıralama + özel ligler ----------
 async function renderTable() {
-  const leagues = (await sb.from('leagues').select('id,name,code,owner').order('created_at')).data || [];
+  const leagues = state.leaguesCache && !state.leaguesDirty ? state.leaguesCache : (state.leaguesCache = (await sb.from('leagues').select('id,name,code,owner').order('created_at')).data || []);
+  state.leaguesDirty = false;
   if (state.league && !leagues.some((l) => l.id === state.league)) state.league = null;
   const lg = leagues.find((l) => l.id === state.league) || null;
   let q = sb.from('leaderboard').select('*').eq('source', state.source).order('total', { ascending: false }).limit(500);
   let members = null;
   if (lg) {
-    const ids = ((await sb.from('league_members').select('user_id').eq('league_id', lg.id)).data || []).map((m) => m.user_id);
-    members = ((await sb.from('profiles').select('id,username').in('id', ids)).data || []);
+    const mm = (await sb.from('league_members').select('user_id, profiles(id,username)').eq('league_id', lg.id)).data;
+    let ids;
+    if (mm && mm.every((m) => m.profiles)) { ids = mm.map((m) => m.user_id); members = mm.map((m) => m.profiles); }
+    else { ids = ((await sb.from('league_members').select('user_id').eq('league_id', lg.id)).data || []).map((m) => m.user_id); members = ((await sb.from('profiles').select('id,username').in('id', ids)).data || []); }
     q = q.in('user_id', ids);
   }
-  const { data } = await q;
-  let rows = data || [];
   const ow = openWeek();
-  let ready = null;
-  if (lg && ow) ready = new Set(((await sb.rpc('league_ready', { l: lg.id, w: ow.id })).data || []).map((x) => (typeof x === 'string' ? x : x.league_ready)));
+  const [{ data }, rdy] = await Promise.all([q, lg && ow ? sb.rpc('league_ready', { l: lg.id, w: ow.id }) : Promise.resolve({ data: null })]);
+  let rows = data || [];
+  const ready = rdy.data ? new Set(rdy.data.map((x) => (typeof x === 'string' ? x : x.league_ready))) : (lg && ow ? new Set() : null);
   if (members) { // ligde puanı olmayanlar da 0 ile görünsün
     const has = new Set(rows.map((r) => r.user_id));
     rows = rows.concat(members.filter((m) => !has.has(m.id)).map((m) => ({ user_id: m.id, username: m.username, total: 0, last_week_points: 0 })));
@@ -718,6 +731,7 @@ async function renderTable() {
   if (lv) lv.onclick = async () => {
     if (!confirm(`"${lg.name}" liginden ayrılmak istiyor musun?`)) return;
     const { error } = await sb.from('league_members').delete().eq('league_id', lg.id).eq('user_id', state.user.id);
+    state.leaguesCache = null;
     if (error) return toast(error.message);
     state.league = null; toast('Ligden ayrıldın'); renderTable();
   };
@@ -734,6 +748,7 @@ function leagueForm(kind) {
     if (a === 'close') return closeSheet();
     const v = document.getElementById('lgv').value.trim();
     const { data, error } = isNew ? await sb.rpc('create_league', { n: v }) : await sb.rpc('join_league', { c: v });
+    state.leaguesCache = null;
     if (error) return toast(error.message);
     closeSheet();
     if (isNew) {
@@ -766,13 +781,18 @@ const BADGES = [
 ];
 
 async function computeStats() {
-  const preds = (await sb.from('predictions').select('week_id,picks,subs,captain').eq('user_id', state.user.id)).data || [];
   const closedIds = state.weeks.filter(isClosed).map((w) => w.id);
-  const tow = closedIds.length ? ((await sb.from('team_of_week').select('week_id,source,player_id').in('week_id', closedIds)).data || []) : [];
+  const none = Promise.resolve({ data: [] }), hc = closedIds.length;
+  const [pR, tR, mbR, brR] = await Promise.all([
+    sb.from('predictions').select('week_id,picks,subs,captain').eq('user_id', state.user.id),
+    hc ? sb.from('team_of_week').select('week_id,source,player_id').in('week_id', closedIds) : none,
+    hc ? sb.from('bonus_answers').select('week_id,q,answer').eq('user_id', state.user.id).in('week_id', closedIds) : none,
+    hc ? sb.from('bonus_results').select('week_id,q,answer').in('week_id', closedIds) : none,
+  ]);
+  const preds = pR.data || [], tow = tR.data || [];
   const set = (w, s) => new Set(tow.filter((t) => t.week_id === w && t.source === s).map((t) => t.player_id));
   const per = { veri: [], taraftar: [] };
-  const myBonus = closedIds.length ? ((await sb.from('bonus_answers').select('week_id,q,answer').eq('user_id', state.user.id).in('week_id', closedIds)).data || []) : [];
-  const bonusRes = closedIds.length ? ((await sb.from('bonus_results').select('week_id,q,answer').in('week_id', closedIds)).data || []) : [];
+  const myBonus = mbR.data || [], bonusRes = brR.data || [];
   const bonusPts = (w) => 2 * myBonus.filter((a) => a.week_id === w && bonusRes.some((r) => r.week_id === w && r.q === a.q && r.answer === a.answer)).length;
   for (const p of preds) {
     if (!closedIds.includes(p.week_id)) continue;

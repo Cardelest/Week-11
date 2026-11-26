@@ -193,3 +193,9 @@ body[data-theme="profile"] { --glow: rgba(60,200,255,.08); }
 .lrow.ztop { box-shadow: inset 3px 0 0 #4ADE80; }
 .lrow.zbot { box-shadow: inset 3px 0 0 var(--bad); }
 .lrow.ztop .lpos { color: #4ADE80; }
+
+/* Sayfa geçişi: veri gelirken eski içerik soluklaşır, üstte ince bir çubuk akar */
+main { transition: opacity .12s; }
+main.loading { opacity: .45; pointer-events: none; }
+main.loading::before { content: ""; position: fixed; top: 0; left: 0; height: 3px; width: 40%; background: var(--accent); border-radius: 0 3px 3px 0; animation: navbar 0.9s ease-in-out infinite; z-index: 50; }
+@keyframes navbar { 0% { transform: translateX(-100%); } 100% { transform: translateX(260%); } }

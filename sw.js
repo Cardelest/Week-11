@@ -1,5 +1,5 @@
 // Basit servis çalışanı: önce internetten dener, bağlantı yoksa son kaydedilen sürümü gösterir.
-const CACHE = 'h11-v8';
+const CACHE = 'h11-v9';
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', (e) => e.waitUntil(self.clients.claim()));
 self.addEventListener('fetch', (e) => {
