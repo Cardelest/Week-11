@@ -171,3 +171,25 @@ button.match { width: 100%; }
 .fdot { display: inline-flex; width: 16px; height: 16px; border-radius: 4px; align-items: center; justify-content: center; font: 800 10px Inter, sans-serif; color: var(--accent-ink); vertical-align: middle; }
 .fdot.fG { background: var(--good); } .fdot.fB { background: #9AA8BD; } .fdot.fM { background: var(--bad); }
 .tabs .tab { font-size: 10.5px; }
+
+/* Bölüm renkleri: zemin aynı, her sekmenin kendi vurgusu */
+body { background-image: radial-gradient(90% 260px at 50% -60px, var(--glow, rgba(60,200,255,.10)), transparent 70%); background-repeat: no-repeat; transition: background-color .2s; }
+body[data-theme="squad"][data-mode="gold"] { --accent: #FFC93C; --glow: rgba(255,201,60,.14); --pitch-line: #B8923A; }
+body[data-theme="squad"][data-mode="silver"] { --accent: #C9D4E3; --glow: rgba(201,212,227,.12); --pitch-line: #7D8CA3; }
+body[data-theme="squad"][data-mode="gold"] .pitch { background: linear-gradient(180deg, #2A2611 0%, #15160F 100%); }
+body[data-theme="squad"][data-mode="silver"] .pitch { background: linear-gradient(180deg, #1C2433 0%, #121A27 100%); }
+body[data-theme="league"] { --accent: #4ADE80; --glow: rgba(74,222,128,.13); }
+body[data-theme="league"] .ltable { background: linear-gradient(180deg, #0E2418 0%, var(--card) 140px); }
+body[data-theme="table"] { --accent: #B69CFF; --glow: rgba(182,156,255,.14); }
+body[data-theme="table"] .list .item.me { background: #1E1840; }
+body[data-theme="season"] { --accent: #FFC93C; --glow: rgba(255,201,60,.14); }
+body[data-theme="bonus"] { --accent: #FF9F5A; --glow: rgba(255,159,90,.13); }
+body[data-theme="profile"] { --glow: rgba(60,200,255,.08); }
+.rank.r1 { color: #FFC93C; } .rank.r2 { color: #C9D4E3; } .rank.r3 { color: #E0955A; }
+.list .item:has(.rank.r1) { background: linear-gradient(90deg, rgba(255,201,60,.10), transparent 60%); }
+.list .item:has(.rank.r2) { background: linear-gradient(90deg, rgba(201,212,227,.08), transparent 60%); }
+.list .item:has(.rank.r3) { background: linear-gradient(90deg, rgba(224,149,90,.08), transparent 60%); }
+.list .item.me:has(.rank) { border-color: var(--accent); }
+.lrow.ztop { box-shadow: inset 3px 0 0 #4ADE80; }
+.lrow.zbot { box-shadow: inset 3px 0 0 var(--bad); }
+.lrow.ztop .lpos { color: #4ADE80; }

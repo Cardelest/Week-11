@@ -204,6 +204,7 @@ let ignorePop = false;
 function go(tab, fromPop = false) {
   if (!fromPop && history.state?.tab !== tab) history.pushState({ tab }, '');
   state.tab = tab;
+  document.body.dataset.theme = tab;
   $tabs.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   window.scrollTo(0, 0);
   Promise.resolve(({ home: renderHome, squad: renderSquad, table: renderTable, profile: renderProfile, admin: renderAdmin, season: renderSeason, bonus: renderBonus, league: renderLeague })[tab]())
@@ -240,13 +241,13 @@ async function renderLeague() {
         <span class="lteam">${crest(r.team, 24)}<span class="grow"><b>${esc(r.team)}</b><span class="form">${(r.form || '').split('').reverse().map(dot).join('')}</span></span></span>
         <span>${r.played}</span><span>${r.won}</span><span>${r.drawn}</span><span>${r.lost}</span><span class="small">${r.gf - r.ga > 0 ? '+' : ''}${r.gf - r.ga}</span><span class="lp">${r.points}</span></div>`).join('') || '<p class="muted center">Puan durumu henüz girilmedi.</p>'}
     </div>
-    <p class="small muted">Form: son 5 maç, en sağdaki en son maç. <span class="fdot fG">G</span> galibiyet <span class="fdot fB">B</span> beraberlik <span class="fdot fM">M</span> mağlubiyet. AV: averaj (attığı − yediği gol).</p>`;
+    <p class="small muted">Form: son 5 maç, en sağdaki en son maç. <span class="fdot fG">G</span> galibiyet <span class="fdot fB">B</span> beraberlik <span class="fdot fM">M</span> mağlubiyet. AV: averaj (attığı − yediği gol).<br><span style="color:#4ADE80">▌</span> Şampiyonlar Ligi yolu · <span style="color:var(--bad)">▌</span> küme düşme hattı</p>`;
   } else {
     const isGoal = view === 'goals';
     const rows = (await sb.from(isGoal ? 'top_scorers' : 'top_assists').select('*').order(isGoal ? 'goals' : 'assists', { ascending: false }).order('name')).data || [];
     let rank = 0, prev = null;
     body = `<div class="card list" style="padding:6px">${rows.map((r, i) => { const v = isGoal ? r.goals : r.assists; if (v !== prev) { rank = i + 1; prev = v; }
-      return `<div class="item"><span class="rank" ${rank <= 3 ? 'style="color:var(--gold)"' : ''}>${rank}</span>${crest(r.team, 26)}<span class="grow"><b>${esc(r.name)}</b><br><span class="small muted">${esc(r.team)}</span></span><span class="pts">${v}</span></div>`; }).join('') || '<p class="muted center">Henüz girilmedi.</p>'}</div>`;
+      return `<div class="item"><span class="rank ${rank <= 3 ? 'r' + rank : ''}">${rank}</span>${crest(r.team, 26)}<span class="grow"><b>${esc(r.name)}</b><br><span class="small muted">${esc(r.team)}</span></span><span class="pts">${v}</span></div>`; }).join('') || '<p class="muted center">Henüz girilmedi.</p>'}</div>`;
   }
   $app.innerHTML = `
     <div class="row between"><h1>Süper Lig</h1>${note ? `<span class="small muted">${note}</span>` : ''}</div>
@@ -379,7 +380,7 @@ async function renderSeason() {
          <p class="small muted center" style="padding:0">Seçimlerin otomatik kaydediliyor. Kilitlemeden önce istediğin kadar değiştirebilirsin.</p>`}
     <h2 style="margin-top:6px">Sezon sıralaması</h2>
     <div class="card list" style="padding:6px">
-      ${board.length ? board.map((r, k) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank" ${k < 3 ? 'style="color:var(--gold)"' : ''}>${k + 1}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}<br><span class="small muted" style="font-weight:500">${r.apps} maç</span></span><span class="pts">${fmt2(r.score)}</span></div>`).join('') : '<p class="muted center">Sıralama ilk ölçümden sonra oluşacak.</p>'}
+      ${board.length ? board.map((r, k) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank ${k < 3 ? 'r' + (k + 1) : ''}">${k + 1}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}<br><span class="small muted" style="font-weight:500">${r.apps} maç</span></span><span class="pts">${fmt2(r.score)}</span></div>`).join('') : '<p class="muted center">Sıralama ilk ölçümden sonra oluşacak.</p>'}
     </div>
     <p class="small muted">Kilitten sonra hiç puan almayan (oynamayan) oyuncu 6,00 sayılır. Ortalamalar ayda bir güncellenir.</p>`;
   document.getElementById('back').onclick = () => go('home');
@@ -515,7 +516,7 @@ async function renderSquad() {
   $app.innerHTML = `
     <div class="row between"><h1>Takımını Kur</h1><span class="pill">4 - 4 - 2</span></div>
     <div class="row between small muted"><span><button class="linkbtn" id="fx2">${w.id}. Hafta maçları</button> · <b style="color:var(--gold)">${filled}/11</b> altın · <b style="color:var(--text)">${subsFilled}/11</b> gümüş</span><span>${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
-    <div class="seg goldsilver" role="group" aria-label="Altın ya da Gümüş 11"><button data-mode="as" aria-pressed="${!bench}">🥇 Altın 11</button><button data-mode="yedek" aria-pressed="${bench}">🥈 Gümüş 11</button></div>
+    ${(document.body.dataset.mode = bench ? 'silver' : 'gold', '')}<div class="seg goldsilver" role="group" aria-label="Altın ya da Gümüş 11"><button data-mode="as" aria-pressed="${!bench}">🥇 Altın 11</button><button data-mode="yedek" aria-pressed="${bench}">🥈 Gümüş 11</button></div>
     ${!closed && (bench ? subsFilled : filled) ? `<button class="linkbtn" id="clear" style="align-self:flex-end; margin-top:-6px; color:var(--bad)">🗑 ${bench ? 'Gümüş' : 'Altın'} 11'i temizle</button>` : ''}
     ${closed && tow.length ? `<div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>` : ''}
     <div class="pitch ${bench ? 'benchpitch' : ''}">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
@@ -693,7 +694,7 @@ async function renderTable() {
     ${lg ? `<div class="card row"><div class="grow"><div class="small muted">Davet kodu</div><div class="display accent" style="font-size:28px; letter-spacing:2px">${lg.code}</div></div><button class="btn" id="invite">Davet et</button></div>` : ''}
     <div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>
     <div class="card list" style="padding:6px">
-      ${ranked.length ? ranked.map((r) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank" ${r.rank <= 3 && Number(r.total) > 0 ? 'style="color:var(--gold)"' : ''}>${r.rank}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}${ready ? `<br><span class="small" style="font-weight:500; color:${ready.has(r.user_id) ? 'var(--good)' : 'var(--muted)'}">${ready.has(r.user_id) ? '✓ ' + ow.id + '. hafta kadrosu hazır' : 'Henüz kadro kurmadı'}</span>` : ''}</span><span class="small muted">son hafta ${fmtP(r.last_week_points)}</span><span class="pts">${fmtP(r.total)} P</span></div>`).join('') : '<p class="muted center">Puanlar ilk hafta kapanıp haftanın 11\'i girilince burada görünecek.</p>'}
+      ${ranked.length ? ranked.map((r) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank ${r.rank <= 3 && Number(r.total) > 0 ? 'r' + r.rank : ''}">${r.rank}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}${ready ? `<br><span class="small" style="font-weight:500; color:${ready.has(r.user_id) ? 'var(--good)' : 'var(--muted)'}">${ready.has(r.user_id) ? '✓ ' + ow.id + '. hafta kadrosu hazır' : 'Henüz kadro kurmadı'}</span>` : ''}</span><span class="small muted">son hafta ${fmtP(r.last_week_points)}</span><span class="pts">${fmtP(r.total)} P</span></div>`).join('') : '<p class="muted center">Puanlar ilk hafta kapanıp haftanın 11\'i girilince burada görünecek.</p>'}
     </div>
     ${lg && ow ? `<button class="btn" id="remind">⏰ Kadro kurmayanlara hatırlat${ready ? ` (${rows.filter((r) => !ready.has(r.user_id)).length})` : ''}</button>` : ''}
     ${lg ? `<button class="btn subtle" id="leave">Ligden ayrıl</button>` : ''}`;
