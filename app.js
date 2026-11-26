@@ -45,6 +45,7 @@ function crest(team, size = 34) {
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const STATUS = { sakat: 'Sakat', cezali: 'Cezalı', supheli: 'Şüpheli' };
 const statusTag = (p) => p?.status ? `<span class="st st-${p.status}" title="${esc(p.status_note || '')}">${STATUS[p.status]}${p.status_note ? ' · ' + esc(p.status_note) : ''}</span>` : '';
+const fmtP = (v) => (v === null || v === undefined || v === '' ? '–' : Number(v).toLocaleString('tr-TR', { maximumFractionDigits: 1 }));
 const shortName = (n) => { const parts = n.split(' '); return parts.length > 1 && n.length > 12 ? parts[0][0] + '. ' + parts.slice(1).join(' ') : n; };
 const $app = document.getElementById('app');
 const $tabs = document.getElementById('tabs');
@@ -226,6 +227,7 @@ function openRules() {
       ${step(3, 'Kapanıştan önce kaydet', 'Kadrolar haftanın ilk maçı başlarken kilitlenir. O ana kadar istediğin kadar değiştirebilirsin. Kapanıştan önce kimse kimsenin kadrosunu göremez.')}
       ${step(4, 'İki ayrı 11, iki ayrı puan', '<b>Veri 11\'i:</b> maç verilerine göre (Sofascore) haftanın en iyi 11\'i. <b>Taraftar 11\'i:</b> taraftar oylamasıyla seçilen 11. Her biri için ayrı puan ve sıralama tutulur.')}
       ${step(5, 'Puanlama', 'Senin 11\'indeki her oyuncu, haftanın 11\'ine girerse <b>1 puan</b>. Kaptan girerse <b>2 puan</b>. Bir haftada en fazla 12 puan.')}
+      ${step('Y', 'Yedekler', 'Her as oyuncuna aynı mevkiden bir yedek seçebilirsin. As o hafta <b>hiç oynamazsa</b> (sakat, cezalı, kadroda yok) yedeği girer ve 11\'e girerse <b class="gold">0,5 puan</b> getirir. As oynarsa yedek devreye girmez. Kaptan oynamazsa kaptanlık bonusu yanar.')}
       ${step(6, 'Arkadaşlarınla yarış', 'Sıralama sekmesinden lig kur, davet linkini gönder. Profil\'de rozetlerini, sezon istatistiklerini ve hangi mevkileri bildiğini görürsün.')}
       ${step(7, 'Hesabını koru', 'Profil\'den şifre belirle. Telefon değişirse "Zaten hesabım var" deyip kullanıcı adın ve şifrenle girersin.')}
       <p class="small muted">Haftanın 11'i ücretsiz bir tahmin oyunudur. Para ile oynanmaz, para ödülü yoktur.</p>
@@ -264,8 +266,8 @@ async function renderHome() {
     ${lw ? `
       <h2 style="margin-top:6px">${lw.id}. Hafta sonucun</h2>
       <div class="row" style="gap:10px">
-        <div class="card grow"><div class="small muted">Veri 11'i</div><div class="display accent" style="font-size:34px">${score('veri') ?? '–'}</div></div>
-        <div class="card grow"><div class="small muted">Taraftar 11'i</div><div class="display" style="font-size:34px">${score('taraftar') ?? '–'}</div></div>
+        <div class="card grow"><div class="small muted">Veri 11'i</div><div class="display accent" style="font-size:34px">${fmtP(score('veri'))}</div></div>
+        <div class="card grow"><div class="small muted">Taraftar 11'i</div><div class="display" style="font-size:34px">${fmtP(score('taraftar'))}</div></div>
       </div>
       ${stats.length ? `<h2 style="margin-top:6px">Çoğunluk ne dedi?</h2>
       <div class="card" style="display:flex; flex-direction:column; gap:10px">
@@ -287,53 +289,72 @@ async function renderSquad() {
   const closed = isClosed(w);
   const { data: pred } = await sb.from('predictions').select('*').eq('week_id', w.id).eq('user_id', state.user.id).maybeSingle();
   if (!state.draft || state.draft.week !== w.id) {
-    state.draft = { week: w.id, picks: pred ? pred.picks.slice() : Array(11).fill(null), captain: pred?.captain ?? null, dirty: false };
+    state.draft = { week: w.id, picks: pred ? pred.picks.slice() : Array(11).fill(null), subs: pred?.subs ? pred.subs.slice() : Array(11).fill(null), captain: pred?.captain ?? null, dirty: false };
   }
-  let tow = [];
-  if (closed) tow = (await sb.from('team_of_week').select('source,player_id').eq('week_id', w.id)).data || [];
+  let tow = [], dnp = new Set();
+  if (closed) {
+    tow = (await sb.from('team_of_week').select('source,player_id').eq('week_id', w.id)).data || [];
+    dnp = new Set(((await sb.from('did_not_play').select('player_id').eq('week_id', w.id)).data || []).map((x) => x.player_id));
+  }
   const inTow = (id, src) => tow.some((t) => t.player_id === id && t.source === src);
-  const d = state.draft;
-  const filled = d.picks.filter(Boolean).length;
+  const d = state.draft, bench = state.squadMode === 'yedek';
+  const filled = d.picks.filter(Boolean).length, subsFilled = d.subs.filter(Boolean).length;
+  const tick = '<span class="hit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04111F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>';
 
   const slot = (i) => {
-    const p = d.picks[i] ? state.byId.get(d.picks[i]) : null;
+    const starter = d.picks[i] ? state.byId.get(d.picks[i]) : null;
+    const sub = d.subs[i] ? state.byId.get(d.subs[i]) : null;
+    let p = bench ? sub : starter, subbedIn = false;
+    if (!bench && closed && starter && dnp.has(starter.id) && sub) { p = sub; subbedIn = true; }
     const hit = closed && p && inTow(p.id, state.source);
-    return `<button class="slot ${p ? '' : 'empty'} ${closed && p && !hit ? 'miss' : ''}" data-i="${i}" aria-label="${p ? esc(p.name) + ', ' + esc(p.team) : ZONE_OF[i] + ' seç'}">
-      <span class="shirt">${shirt(kitFor(p, i))}${p && d.captain === p.id ? '<span class="cap">C</span>' : ''}${p?.status && !closed ? `<span class="warn" title="${STATUS[p.status]}">!</span>` : ''}${hit ? '<span class="hit"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="#04111F" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></span>' : ''}</span>
-      <span class="name">${p ? esc(shortName(p.name)) : '+ ' + ZONE_OF[i]}</span></button>`;
+    const label = p ? esc(shortName(p.name)) : '+ ' + (bench ? 'Yedek' : ZONE_OF[i]);
+    return `<button class="slot ${p ? '' : 'empty'} ${bench ? 'bench' : ''} ${closed && p && !hit ? 'miss' : ''}" data-i="${i}" aria-label="${p ? esc(p.name) + ', ' + esc(p.team) : (bench ? ZONE_OF[i] + ' yedeği seç' : ZONE_OF[i] + ' seç')}">
+      <span class="shirt">${shirt(kitFor(p))}${!bench && !subbedIn && p && d.captain === p.id ? '<span class="cap">C</span>' : ''}${bench || subbedIn ? (p ? '<span class="cap sub">Y</span>' : '') : ''}${p?.status && !closed ? `<span class="warn" title="${STATUS[p.status]}">!</span>` : ''}${hit ? tick : ''}</span>
+      <span class="name">${subbedIn ? '↺ ' : ''}${label}</span>${!bench && !closed && sub ? `<span class="subname">Y: ${esc(shortName(sub.name))}</span>` : ''}${bench && starter ? `<span class="subname">As: ${esc(shortName(starter.name))}</span>` : ''}</button>`;
   };
+  const subsIn = closed ? d.picks.map((id, i) => (dnp.has(id) && d.subs[i] ? i : -1)).filter((i) => i >= 0) : [];
   $app.innerHTML = `
     <div class="row between"><h1>Takımını Kur</h1><span class="pill">4 - 4 - 2</span></div>
-    <div class="row between small muted"><span><button class="linkbtn" id="fx2">${w.id}. Hafta maçları</button> · <b style="color:var(--text)">${filled}/11</b> seçildi</span><span>${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
-    ${closed && tow.length ? `<div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>` : ''}
-    <div class="pitch">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
-    ${!closed && d.picks.some((id) => state.byId.get(id)?.status) ? `<div class="lock" style="border-color:var(--bad); color:var(--text)">⚠️ Kadronda ${d.picks.map((id) => state.byId.get(id)).filter((p) => p?.status).map((p) => `<b>${esc(shortName(p.name))}</b> (${STATUS[p.status].toLocaleLowerCase('tr')})`).join(', ')} var. Oynamazsa 11'e giremez.</div>` : ''}
-    <p class="small muted" style="text-align:center">${closed ? (tow.length ? 'Yeşil tikli oyuncular 11\'e girdi.' : 'Haftanın 11\'i henüz açıklanmadı.') : '<span class="gold"><b>Kaptan (C) tutarsa 2 puan.</b></span> Oyuncuya dokun: seç, değiştir ya da kaptan yap.'}</p>
-    ${closed ? '' : `<button class="btn big" id="save" ${filled === 11 && d.captain ? '' : 'disabled'}>${filled < 11 ? `${11 - filled} oyuncu daha seç` : !d.captain ? 'Kaptanını seç' : d.dirty || !pred ? 'Kadroyu Kaydet' : 'Kadron kayıtlı ✓'}</button>`}
+    <div class="row between small muted"><span><button class="linkbtn" id="fx2">${w.id}. Hafta maçları</button> · <b style="color:var(--text)">${filled}/11</b> as · <b style="color:var(--text)">${subsFilled}/11</b> yedek</span><span>${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
+    <div class="seg" role="group" aria-label="As ya da yedek"><button data-mode="as" aria-pressed="${!bench}">As 11</button><button data-mode="yedek" aria-pressed="${bench}">Yedekler</button></div>
+    ${closed && tow.length && !bench ? `<div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>` : ''}
+    <div class="pitch ${bench ? 'benchpitch' : ''}">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
+    ${!closed && d.picks.some((id) => state.byId.get(id)?.status) ? `<div class="lock" style="border-color:var(--bad); color:var(--text)">⚠️ Kadronda ${d.picks.map((id) => state.byId.get(id)).filter((p) => p?.status).map((p) => `<b>${esc(shortName(p.name))}</b> (${STATUS[p.status].toLocaleLowerCase('tr')})`).join(', ')} var. Yedeğini seçmeyi unutma.</div>` : ''}
+    ${subsIn.length ? `<div class="lock">↺ Oynamayan ${subsIn.map((i) => `<b>${esc(shortName(state.byId.get(d.picks[i])?.name || ''))}</b>`).join(', ')} yerine yedek${subsIn.length > 1 ? 'ler' : ''} girdi (11'e girerse 0,5 puan).</div>` : ''}
+    <p class="small muted" style="text-align:center">${bench
+      ? 'Her asın aynı mevkiden bir yedeği olabilir. As o hafta <b>hiç oynamazsa</b> yedeği girer; yedek 11\'e girerse <b class="gold">0,5 puan</b>. As oynarsa yedek devreye girmez.'
+      : closed ? (tow.length ? 'Yeşil tikli oyuncular 11\'e girdi.' : 'Haftanın 11\'i henüz açıklanmadı.') : '<span class="gold"><b>Kaptan (C) tutarsa 2 puan.</b></span> Oyuncuya dokun: seç, değiştir ya da kaptan yap.'}</p>
+    ${closed ? '' : `<button class="btn big" id="save" ${filled === 11 && d.captain ? '' : 'disabled'}>${filled < 11 ? `${11 - filled} as oyuncu daha seç` : !d.captain ? 'Kaptanını seç' : d.dirty || !pred ? 'Kadroyu Kaydet' : 'Kadron kayıtlı ✓'}</button>`}
+    ${!closed && filled === 11 && subsFilled < 11 && !bench ? `<button class="btn subtle" id="gobench">Yedekleri seç (${subsFilled}/11) →</button>` : ''}
     ${pred && !d.dirty ? `<button class="btn ghost" id="share"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13M7 8l5-5 5 5M5 14v5a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-5"/></svg>Paylaşım kartı (story)</button>` : ''}`;
 
   $app.querySelectorAll('[data-src]').forEach((b) => { b.onclick = () => { state.source = b.dataset.src; renderSquad(); }; });
+  $app.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { state.squadMode = b.dataset.mode; renderSquad(); }; });
+  const gb = document.getElementById('gobench'); if (gb) gb.onclick = () => { state.squadMode = 'yedek'; renderSquad(); window.scrollTo(0, 0); };
   if (!closed) {
     $app.querySelectorAll('.slot').forEach((b) => { b.onclick = () => onSlot(+b.dataset.i); });
     document.getElementById('save').onclick = saveSquad;
   }
   document.getElementById('fx2').onclick = () => openFixtures(w.id);
   const sh = document.getElementById('share');
-  if (sh) sh.onclick = () => shareCard(w, d, closed && tow.length ? { tow, source: state.source } : null);
+  if (sh) sh.onclick = () => shareCard(w, d, closed && tow.length ? { tow, source: state.source, dnp } : null);
 }
 
 function onSlot(i) {
-  const d = state.draft, id = d.picks[i];
+  const d = state.draft, bench = state.squadMode === 'yedek';
+  const arr = bench ? d.subs : d.picks, id = arr[i];
   if (!id) return openPicker(i);
   const p = state.byId.get(id);
   openSheet(`
-    <div class="row">${shirt(kitFor(p, i), 44)}<div class="grow"><div style="font-weight:700">${esc(p.name)}</div><div class="small muted">${esc(p.team)} · ${esc(p.position)}</div>${p.status ? `<div style="margin-top:4px">${statusTag(p)}</div>` : ''}</div></div>
-    <button class="btn" data-a="cap" ${d.captain === id ? 'disabled' : ''}>${d.captain === id ? 'Zaten kaptan' : 'Kaptan yap'}</button>
+    <div class="row">${shirt(kitFor(p), 44)}<div class="grow"><div style="font-weight:700">${esc(p.name)}${bench ? ' <span class="small muted">(yedek)</span>' : ''}</div><div class="small muted">${esc(p.team)} · ${esc(p.position)}</div>${p.status ? `<div style="margin-top:4px">${statusTag(p)}</div>` : ''}</div></div>
+    ${bench ? '' : `<button class="btn" data-a="cap" ${d.captain === id ? 'disabled' : ''}>${d.captain === id ? 'Zaten kaptan' : 'Kaptan yap'}</button>`}
+    ${bench ? '' : `<button class="btn subtle" data-a="sub">${d.subs[i] ? 'Yedeğini değiştir' : 'Yedeğini seç'}</button>`}
     <button class="btn subtle" data-a="swap">Değiştir</button>
     <button class="btn subtle" data-a="remove">Çıkar</button>`, (a) => {
     if (a === 'cap') d.captain = id;
+    if (a === 'sub') { closeSheet(); state.squadMode = 'yedek'; return openPicker(i); }
     if (a === 'swap') { closeSheet(); return openPicker(i); }
-    if (a === 'remove') { d.picks[i] = null; if (d.captain === id) d.captain = null; }
+    if (a === 'remove') { arr[i] = null; if (!bench && d.captain === id) d.captain = null; }
     d.dirty = true; closeSheet(); renderSquad();
   });
 }
@@ -347,7 +368,7 @@ function openPicker(i, team = null) {
   [...new Set(pool.map((p) => p.team))].sort((a, b) => a.localeCompare(b, 'tr')).forEach((t) => { if (!order.includes(t)) order.push(t); });
   const teams = order.filter((t) => pool.some((p) => p.team === t));
   openSheet(`
-    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}${team ? crest(team, 36) : ''}<h2 class="grow">${team ? esc(team) : zone + ' seç'}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
+    <div class="row between">${team ? `<button class="btn subtle" data-a="back" style="min-height:40px; padding:0 14px">← Takımlar</button>` : ''}${team ? crest(team, 36) : ''}<h2 class="grow">${team ? esc(team) : zone + (state.squadMode === 'yedek' ? ' yedeği seç' : ' seç')}</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
     ${team ? (opponentOf(d.week, team) ? `<div class="small accent">Bu hafta: vs ${esc(opponentOf(d.week, team))}</div>` : '') : '<input id="q" type="search" placeholder="Ya da oyuncu adı yaz" autocomplete="off">'}
     <div class="scroll" id="res"></div>`, (a) => {
     if (a === 'close') closeSheet();
@@ -356,18 +377,19 @@ function openPicker(i, team = null) {
   const $res = document.getElementById('res'), $q = document.getElementById('q');
   const norm = (s) => s.toLocaleLowerCase('tr').normalize('NFD').replace(/[̀-ͯ]/g, '').replace(/ı/g, 'i');
   const playerList = (list) => list.map((p) => {
-    const taken = d.picks.includes(p.id) && d.picks[i] !== p.id;
+    const bench = state.squadMode === 'yedek', own = (bench ? d.subs : d.picks)[i];
+    const taken = (d.picks.includes(p.id) || d.subs.includes(p.id)) && own !== p.id;
     return `<button class="pick" data-id="${p.id}" ${taken ? 'disabled' : ''}>${shirt(kitFor(p, i), 34)}<span class="grow"><b>${esc(p.name)}</b> ${statusTag(p)}<br><span class="small muted">${team ? '' : esc(p.team) + ' · '}${esc(p.position)}${p.number ? ' · ' + p.number : ''}</span>${!team && opponentOf(d.week, p.team) ? `<br><span class="small accent">vs ${esc(opponentOf(d.week, p.team))}</span>` : ''}</span>${taken ? '<span class="small muted">Kadroda</span>' : ''}</button>`;
   }).join('') || '<p class="muted center">Sonuç yok</p>';
   const bindPicks = () => $res.querySelectorAll('.pick').forEach((b) => { b.onclick = () => {
-    const old = d.picks[i]; d.picks[i] = +b.dataset.id;
-    if (d.captain === old) d.captain = null;
+    if (state.squadMode === 'yedek') { d.subs[i] = +b.dataset.id; }
+    else { const old = d.picks[i]; d.picks[i] = +b.dataset.id; if (d.captain === old) d.captain = null; }
     d.dirty = true; closeSheet(); renderSquad();
   }; });
   const teamGrid = () => {
     $res.innerHTML = `<div class="teamgrid">${teams.map((t) => {
       const k = KITS[t] || EMPTY_KIT, n = pool.filter((p) => p.team === t).length;
-      const mine = pool.some((p) => p.team === t && d.picks.includes(p.id));
+      const mine = pool.some((p) => p.team === t && (d.picks.includes(p.id) || d.subs.includes(p.id)));
       return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${crest(t, 44)}<b>${esc(t)}</b><span class="small muted">${n} ${zone.toLocaleLowerCase('tr')}</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
     }).join('')}</div>`;
     $res.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => openPicker(i, b.dataset.team); });
@@ -389,7 +411,7 @@ function openPicker(i, team = null) {
 async function saveSquad() {
   const d = state.draft, btn = document.getElementById('save');
   btn.disabled = true;
-  const { error } = await sb.from('predictions').upsert({ user_id: state.user.id, week_id: d.week, picks: d.picks, captain: d.captain, updated_at: new Date().toISOString() });
+  const { error } = await sb.from('predictions').upsert({ user_id: state.user.id, week_id: d.week, picks: d.picks, subs: d.subs.some(Boolean) ? d.subs : null, captain: d.captain, updated_at: new Date().toISOString() });
   if (error) { toast(error.message.includes('row-level') ? 'Bu hafta kapandı, kadro değiştirilemez' : 'Kaydedilemedi: ' + error.message); btn.disabled = false; return; }
   d.dirty = false; toast('Kadron kaydedildi ✓'); renderSquad();
 }
@@ -427,7 +449,7 @@ async function renderTable() {
     ${lg ? `<div class="card row"><div class="grow"><div class="small muted">Davet kodu</div><div class="display accent" style="font-size:28px; letter-spacing:2px">${lg.code}</div></div><button class="btn" id="invite">Davet et</button></div>` : ''}
     <div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>
     <div class="card list" style="padding:6px">
-      ${ranked.length ? ranked.map((r) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank" ${r.rank <= 3 && r.total > 0 ? 'style="color:var(--gold)"' : ''}>${r.rank}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}${ready ? `<br><span class="small" style="font-weight:500; color:${ready.has(r.user_id) ? 'var(--good)' : 'var(--muted)'}">${ready.has(r.user_id) ? '✓ ' + ow.id + '. hafta kadrosu hazır' : 'Henüz kadro kurmadı'}</span>` : ''}</span><span class="small muted">son hafta ${r.last_week_points}</span><span class="pts">${r.total} P</span></div>`).join('') : '<p class="muted center">Puanlar ilk hafta kapanıp haftanın 11\'i girilince burada görünecek.</p>'}
+      ${ranked.length ? ranked.map((r) => `<div class="item ${r.user_id === state.user.id ? 'me' : ''}"><span class="rank" ${r.rank <= 3 && Number(r.total) > 0 ? 'style="color:var(--gold)"' : ''}>${r.rank}</span><span class="grow" style="font-weight:700">${esc(r.username)}${r.user_id === state.user.id ? ' (sen)' : ''}${ready ? `<br><span class="small" style="font-weight:500; color:${ready.has(r.user_id) ? 'var(--good)' : 'var(--muted)'}">${ready.has(r.user_id) ? '✓ ' + ow.id + '. hafta kadrosu hazır' : 'Henüz kadro kurmadı'}</span>` : ''}</span><span class="small muted">son hafta ${fmtP(r.last_week_points)}</span><span class="pts">${fmtP(r.total)} P</span></div>`).join('') : '<p class="muted center">Puanlar ilk hafta kapanıp haftanın 11\'i girilince burada görünecek.</p>'}
     </div>
     ${lg && ow ? `<button class="btn" id="remind">⏰ Kadro kurmayanlara hatırlat${ready ? ` (${rows.filter((r) => !ready.has(r.user_id)).length})` : ''}</button>` : ''}
     ${lg ? `<button class="btn subtle" id="leave">Ligden ayrıl</button>` : ''}`;
@@ -499,18 +521,24 @@ const BADGES = [
 ];
 
 async function computeStats() {
-  const preds = (await sb.from('predictions').select('week_id,picks,captain').eq('user_id', state.user.id)).data || [];
+  const preds = (await sb.from('predictions').select('week_id,picks,subs,captain').eq('user_id', state.user.id)).data || [];
   const closedIds = state.weeks.filter(isClosed).map((w) => w.id);
   const tow = closedIds.length ? ((await sb.from('team_of_week').select('week_id,source,player_id').in('week_id', closedIds)).data || []) : [];
   const set = (w, s) => new Set(tow.filter((t) => t.week_id === w && t.source === s).map((t) => t.player_id));
+  const dnpRows = closedIds.length ? ((await sb.from('did_not_play').select('week_id,player_id').in('week_id', closedIds)).data || []) : [];
+  const dnp = (w, id) => dnpRows.some((x) => x.week_id === w && x.player_id === id);
   const per = { veri: [], taraftar: [] };
   for (const p of preds) {
     if (!closedIds.includes(p.week_id)) continue;
     for (const s of ['veri', 'taraftar']) {
       const st = set(p.week_id, s); if (!st.size) continue;
-      const hitIdx = p.picks.map((id, i) => (st.has(id) ? i : -1)).filter((i) => i >= 0);
-      const capHit = st.has(p.captain);
-      per[s].push({ week: p.week_id, picks: p.picks, hitIdx, hits: hitIdx.length, capHit, points: hitIdx.length + (capHit ? 1 : 0) });
+      // Oynamayan asın yerine yedeği (varsa) geçer; yedek 11'e girerse 0,5 puan
+      const eff = p.picks.map((id, i) => (dnp(p.week_id, id) && p.subs?.[i] ? p.subs[i] : id));
+      const isSub = p.picks.map((id, i) => eff[i] !== id);
+      const hitIdx = eff.map((id, i) => (st.has(id) ? i : -1)).filter((i) => i >= 0);
+      const capHit = !dnp(p.week_id, p.captain) && st.has(p.captain);
+      const points = hitIdx.reduce((a, i) => a + (isSub[i] ? 0.5 : 1), 0) + (capHit ? 1 : 0);
+      per[s].push({ week: p.week_id, picks: eff, hitIdx, hits: hitIdx.length, capHit, points });
     }
   }
   const earned = {};
@@ -563,8 +591,8 @@ async function renderProfile() {
 
     <h2 style="margin-top:6px">Sezon istatistiklerin</h2>
     <div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>
-    <div class="row" style="gap:10px">${stat('Toplam puan', total)}${stat('Oynanan hafta', rows.length)}</div>
-    <div class="row" style="gap:10px">${stat('Ortalama', rows.length ? (total / rows.length).toFixed(1) : '–')}${stat('En iyi hafta', best ? `${best.points} P <span class="small muted" style="font-family:Inter; font-weight:500">(${best.week}.)</span>` : '–')}</div>
+    <div class="row" style="gap:10px">${stat('Toplam puan', fmtP(total))}${stat('Oynanan hafta', rows.length)}</div>
+    <div class="row" style="gap:10px">${stat('Ortalama', rows.length ? fmtP(Math.round((total / rows.length) * 10) / 10) : '–')}${stat('En iyi hafta', best ? `${fmtP(best.points)} P <span class="small muted" style="font-family:Inter; font-weight:500">(${best.week}.)</span>` : '–')}</div>
     <div class="row" style="gap:10px">${stat('Kaptan tutma', capRate === null ? '–' : '%' + capRate)}${stat('En çok seçtiğin', favP ? `<span style="font-size:18px">${esc(shortName(favP.name))}</span>` : '–')}</div>
 
     <h2 style="margin-top:6px">Hangi mevkileri bildin?</h2>
@@ -612,9 +640,11 @@ async function shareCard(w, d, result) {
   x.fillText(`${w.id}. Hafta  ·  @${state.profile.username}`, 74, 285);
   // Sonuç rozeti
   const inSet = result ? new Set(result.tow.filter((t) => t.source === result.source).map((t) => t.player_id)) : null;
+  const dnpSet = result?.dnp || new Set();
+  const eff = d.picks.map((id, i) => (dnpSet.has(id) && d.subs?.[i] ? d.subs[i] : id));
   if (inSet) {
-    const pts = d.picks.filter((id) => inSet.has(id)).length + (inSet.has(d.captain) ? 1 : 0);
-    const label = `${result.source === 'veri' ? 'Veri' : 'Taraftar'} 11'i: ${pts} P`;
+    const pts = eff.reduce((a, id, i) => a + (inSet.has(id) ? (id !== d.picks[i] ? 0.5 : id === d.captain ? 2 : 1) : 0), 0);
+    const label = `${result.source === 'veri' ? 'Veri' : 'Taraftar'} 11'i: ${fmtP(pts)} P`;
     x.font = '800 46px Barlow, sans-serif'; const lw = x.measureText(label).width + 60;
     rr(W - 70 - lw, 240, lw, 70, 35); x.fillStyle = '#3CC8FF'; x.fill(); x.fillStyle = '#04111F'; x.fillText(label, W - 70 - lw + 30, 292);
   }
@@ -630,7 +660,7 @@ async function shareCard(w, d, result) {
   LINES.forEach((l, li) => {
     l.idx.forEach((i, k) => {
       const cx = PX + (PW / (l.idx.length + 1)) * (k + 1), cy = rowsY[li];
-      const p = state.byId.get(d.picks[i]); const S = 150, sc = S / 60;
+      const p = state.byId.get(eff[i]); const S = 150, sc = S / 60;
       const miss = inSet && p && !inSet.has(p.id);
       x.save(); x.globalAlpha = miss ? .45 : 1; x.translate(cx - S / 2, cy); x.scale(sc, sc); x.clip(shirtPath);
       kitFor(p, i).forEach((col, j) => { x.fillStyle = col; x.fillRect(j * 10, 0, 10, 60); });
@@ -691,6 +721,12 @@ async function renderAdmin() {
       <button class="btn" id="asave">Bu 11'i kaydet</button>
     </div>
     <div class="card" style="display:flex; flex-direction:column; gap:10px">
+      <h2>Hiç oynamayanlar (${sel || '–'}. hafta)</h2>
+      <p class="small muted">Kullanıcıların seçtiği, haftanın 11'ine girmeyen as oyuncular. O hafta <b>hiç dakika almayanları</b> işaretle; onların yerine yedekleri devreye girer. Hafta kapandıktan sonra görünür.</p>
+      <div id="dnp" style="display:flex; flex-direction:column; gap:4px"></div>
+      <button class="btn" id="dnpsave">Oynamayanları kaydet</button>
+    </div>
+    <div class="card" style="display:flex; flex-direction:column; gap:10px">
       <h2>Sakat / cezalı oyuncular</h2>
       <div id="flagged" style="display:flex; flex-direction:column; gap:4px"></div>
       <input id="sq" type="search" placeholder="Oyuncu ara ve durum ver" autocomplete="off">
@@ -732,6 +768,26 @@ async function renderAdmin() {
     document.querySelectorAll('[data-clear]').forEach((b) => { b.onclick = () => setStatus(+b.dataset.clear, null, null); });
   };
   drawFlagged();
+  // Oynamayanlar
+  if (sel) {
+    const [pr, tw, dn] = await Promise.all([
+      sb.from('predictions').select('picks').eq('week_id', sel),
+      sb.from('team_of_week').select('player_id').eq('week_id', sel),
+      sb.from('did_not_play').select('player_id').eq('week_id', sel)
+    ]);
+    const inT = new Set((tw.data || []).map((x) => x.player_id)), marked = new Set((dn.data || []).map((x) => x.player_id));
+    const ids = [...new Set((pr.data || []).flatMap((x) => x.picks))].filter((id) => !inT.has(id));
+    const list = ids.map((id) => state.byId.get(id)).filter(Boolean).sort((a, b) => a.team.localeCompare(b.team, 'tr') || a.name.localeCompare(b.name, 'tr'));
+    document.getElementById('dnp').innerHTML = list.length ? list.map((p) => `<label class="row card" style="padding:8px 12px; color:var(--text); font-size:14px; flex-direction:row"><input type="checkbox" data-dnp="${p.id}" ${marked.has(p.id) ? 'checked' : ''} style="width:22px; min-height:22px"><span class="grow"><b>${esc(p.name)}</b> <span class="small muted">${esc(p.team)} · ${esc(p.zone)}</span></span></label>`).join('') : '<p class="small muted">Gösterilecek oyuncu yok (hafta kapanmamış ya da kimse kadro kurmamış).</p>';
+  }
+  document.getElementById('dnpsave').onclick = async () => {
+    if (!sel) return toast('Önce bir hafta seç');
+    const ids = [...document.querySelectorAll('[data-dnp]')].filter((c) => c.checked).map((c) => +c.dataset.dnp);
+    const del = await sb.from('did_not_play').delete().eq('week_id', sel);
+    if (del.error) return toast(del.error.message);
+    if (ids.length) { const ins = await sb.from('did_not_play').insert(ids.map((player_id) => ({ week_id: sel, player_id }))); if (ins.error) return toast(ins.error.message); }
+    toast(`${ids.length} oyuncu "oynamadı" olarak kaydedildi, puanlar güncellendi ✓`);
+  };
   const $sq = document.getElementById('sq'), $sres = document.getElementById('sres');
   $sq.oninput = () => {
     const q = norm($sq.value.trim());
