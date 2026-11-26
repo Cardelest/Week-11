@@ -12,6 +12,14 @@ const LINES = [
   { zone: 'Defans', idx: [1, 2, 3, 4] },
   { zone: 'Kaleci', idx: [0] }
 ];
+// Her kutunun mevkisi (sahada soldan sağa): sol bek, 2 stoper, sağ bek; sol kanat, 2 merkez, sağ kanat
+const SLOT_LABEL = ['Kaleci', 'Sol Bek', 'Stoper', 'Stoper', 'Sağ Bek', 'Sol Kanat', 'Merkez OS', 'Merkez OS', 'Sağ Kanat', 'Forvet', 'Forvet'];
+const SLOT_POS = [
+  ['Kaleci'], ['Sol Bek'], ['Stoper'], ['Stoper'], ['Sağ Bek'],
+  ['Sol Kanat', 'Sol Orta Saha'], ['Merkez Orta Saha', 'Ön Libero', 'On Numara'], ['Merkez Orta Saha', 'Ön Libero', 'On Numara'], ['Sağ Kanat', 'Sağ Orta Saha'],
+  ['Santrafor'], ['Santrafor']
+];
+const fitsSlot = (p, i) => !!p && SLOT_POS[i].includes(p.position);
 const ZONE_OF = ['Kaleci', 'Defans', 'Defans', 'Defans', 'Defans', 'Orta Saha', 'Orta Saha', 'Orta Saha', 'Orta Saha', 'Forvet', 'Forvet'];
 
 // Formalar: arma/logo yok, sadece takım renkleri (6 dikey şerit)
@@ -192,7 +200,9 @@ function showTabs() {
   $tabs.querySelector('[data-tab="admin"]').hidden = !state.profile?.is_admin;
   $tabs.querySelectorAll('.tab').forEach((b) => { b.onclick = () => go(b.dataset.tab); });
 }
-function go(tab) {
+let ignorePop = false;
+function go(tab, fromPop = false) {
+  if (!fromPop && history.state?.tab !== tab) history.pushState({ tab }, '');
   state.tab = tab;
   $tabs.querySelectorAll('.tab').forEach((b) => b.setAttribute('aria-current', b.dataset.tab === tab ? 'page' : 'false'));
   window.scrollTo(0, 0);
@@ -287,9 +297,13 @@ async function renderSquad() {
   if (!w) { $app.innerHTML = `<h1>Kadrom</h1><div class="card muted">Henüz açık bir hafta yok.</div>`; return; }
   const closed = isClosed(w);
   const { data: pred } = await sb.from('predictions').select('*').eq('week_id', w.id).eq('user_id', state.user.id).maybeSingle();
+  const draftKey = `h11-draft-${state.user.id}-${w.id}`;
   if (!state.draft || state.draft.week !== w.id) {
     state.draft = { week: w.id, picks: pred ? pred.picks.slice() : Array(11).fill(null), subs: pred?.subs ? pred.subs.slice() : Array(11).fill(null), captain: pred?.captain ?? null, dirty: false };
+    // Kaydedilmemiş seçimler varsa geri getir
+    if (!closed) { try { const saved = JSON.parse(localStorage.getItem(draftKey) || 'null'); if (saved?.dirty) { Object.assign(state.draft, saved, { week: w.id }); toast('Kaydetmediğin seçimlerin geri getirildi'); } } catch {} }
   }
+  if (!closed) { try { state.draft.dirty ? localStorage.setItem(draftKey, JSON.stringify(state.draft)) : localStorage.removeItem(draftKey); } catch {} }
   let tow = [];
   if (closed) {
     tow = (await sb.from('team_of_week').select('source,player_id').eq('week_id', w.id)).data || [];
@@ -304,8 +318,8 @@ async function renderSquad() {
     const sub = d.subs[i] ? state.byId.get(d.subs[i]) : null;
     const p = bench ? sub : starter;
     const hit = closed && p && inTow(p.id, state.source);
-    const label = p ? esc(shortName(p.name)) : '+ ' + (bench ? 'Gümüş' : ZONE_OF[i]);
-    return `<button class="slot ${p ? '' : 'empty'} ${bench ? 'bench' : ''} ${closed && p && !hit ? 'miss' : ''}" data-i="${i}" aria-label="${p ? esc(p.name) + ', ' + esc(p.team) : (bench ? ZONE_OF[i] + ' yedeği seç' : ZONE_OF[i] + ' seç')}">
+    const label = p ? esc(shortName(p.name)) : '+ ' + SLOT_LABEL[i];
+    return `<button class="slot ${p ? '' : 'empty'} ${bench ? 'bench' : ''} ${closed && p && !hit ? 'miss' : ''}" data-i="${i}" aria-label="${p ? esc(p.name) + ', ' + esc(p.team) : (bench ? 'Gümüş ' : 'Altın ') + SLOT_LABEL[i] + ' seç'}">
       <span class="shirt">${shirt(kitFor(p))}${!bench && p && d.captain === p.id ? '<span class="cap">C</span>' : ''}${bench && p ? '<span class="cap sub">G</span>' : ''}${p?.status && !closed ? `<span class="warn" title="${STATUS[p.status]}">!</span>` : ''}${hit ? tick : ''}</span>
       <span class="name">${label}</span>${!bench && sub ? `<span class="subname">G: ${esc(shortName(sub.name))}</span>` : ''}${bench && starter ? `<span class="subname">A: ${esc(shortName(starter.name))}</span>` : ''}</button>`;
   };
@@ -314,6 +328,7 @@ async function renderSquad() {
     <div class="row between"><h1>Takımını Kur</h1><span class="pill">4 - 4 - 2</span></div>
     <div class="row between small muted"><span><button class="linkbtn" id="fx2">${w.id}. Hafta maçları</button> · <b style="color:var(--gold)">${filled}/11</b> altın · <b style="color:var(--text)">${subsFilled}/11</b> gümüş</span><span>${closed ? 'Kapandı' : 'Kapanışa ' + countdown(w.deadline)}</span></div>
     <div class="seg goldsilver" role="group" aria-label="Altın ya da Gümüş 11"><button data-mode="as" aria-pressed="${!bench}">🥇 Altın 11</button><button data-mode="yedek" aria-pressed="${bench}">🥈 Gümüş 11</button></div>
+    ${!closed && (bench ? subsFilled : filled) ? `<button class="linkbtn" id="clear" style="align-self:flex-end; margin-top:-6px; color:var(--bad)">🗑 ${bench ? 'Gümüş' : 'Altın'} 11'i temizle</button>` : ''}
     ${closed && tow.length ? `<div class="seg" role="group" aria-label="Hangi 11"><button data-src="veri" aria-pressed="${state.source === 'veri'}">Veri 11'i</button><button data-src="taraftar" aria-pressed="${state.source === 'taraftar'}">Taraftar 11'i</button></div>` : ''}
     <div class="pitch ${bench ? 'benchpitch' : ''}">${LINES.map((l) => `<div class="line">${l.idx.map(slot).join('')}</div>`).join('')}</div>
     ${!closed && d.picks.some((id) => state.byId.get(id)?.status) ? `<div class="lock" style="border-color:var(--bad); color:var(--text)">⚠️ Kadronda ${d.picks.map((id) => state.byId.get(id)).filter((p) => p?.status).map((p) => `<b>${esc(shortName(p.name))}</b> (${STATUS[p.status].toLocaleLowerCase('tr')})`).join(', ')} var. Oynamazsa 11'e giremez.</div>` : ''}
@@ -326,6 +341,12 @@ async function renderSquad() {
 
   $app.querySelectorAll('[data-src]').forEach((b) => { b.onclick = () => { state.source = b.dataset.src; renderSquad(); }; });
   $app.querySelectorAll('[data-mode]').forEach((b) => { b.onclick = () => { state.squadMode = b.dataset.mode; renderSquad(); }; });
+  const clr = document.getElementById('clear');
+  if (clr) clr.onclick = () => {
+    if (!confirm(`${bench ? 'Gümüş' : 'Altın'} 11'deki tüm oyuncular çıkarılsın mı?`)) return;
+    if (bench) d.subs = Array(11).fill(null); else { d.picks = Array(11).fill(null); d.captain = null; }
+    d.dirty = true; renderSquad();
+  };
   const gb = document.getElementById('gobench'); if (gb) gb.onclick = () => { state.squadMode = 'yedek'; renderSquad(); window.scrollTo(0, 0); };
   if (!closed) {
     $app.querySelectorAll('.slot').forEach((b) => { b.onclick = () => onSlot(+b.dataset.i); });
@@ -345,8 +366,10 @@ function onSlot(i) {
     <div class="row">${shirt(kitFor(p), 44)}<div class="grow"><div style="font-weight:700">${esc(p.name)}${bench ? ' <span class="small muted">(Gümüş 11)</span>' : ''}</div><div class="small muted">${esc(p.team)} · ${esc(p.position)}</div>${p.status ? `<div style="margin-top:4px">${statusTag(p)}</div>` : ''}</div></div>
     ${bench ? '' : `<button class="btn" data-a="cap" ${d.captain === id ? 'disabled' : ''}>${d.captain === id ? 'Zaten kaptan' : 'Kaptan yap'}</button>`}
     ${bench ? '' : `<button class="btn subtle" data-a="sub">🥈 ${d.subs[i] ? 'Gümüş 11\'deki oyuncuyu değiştir' : 'Bu mevki için Gümüş oyuncu seç'}</button>`}
-    <button class="btn subtle" data-a="swap">Değiştir</button>
-    <button class="btn subtle" data-a="remove">Çıkar</button>`, (a) => {
+    <button class="btn subtle" data-a="swap">🔁 Başka oyuncuyla değiştir</button>
+    ${swapTargets(i).length ? '<button class="btn subtle" data-a="move">↔ Yer değiştir</button>' : ''}
+    <button class="btn subtle" data-a="remove" style="color:var(--bad)">✕ Çıkar</button>`, (a) => {
+    if (a === 'move') { closeSheet(); return openMove(i); }
     if (a === 'cap') d.captain = id;
     if (a === 'sub') { closeSheet(); state.squadMode = 'yedek'; return openPicker(i); }
     if (a === 'swap') { closeSheet(); return openPicker(i); }
@@ -355,9 +378,32 @@ function onSlot(i) {
   });
 }
 
+// Bu oyuncunun gidebileceği yerler: aynı mevkideki diğer kutu ya da aynı kutunun Altın/Gümüş karşılığı
+function swapTargets(i) {
+  const d = state.draft, bench = state.squadMode === 'yedek', arr = bench ? d.subs : d.picks, other = bench ? d.picks : d.subs;
+  const p = state.byId.get(arr[i]), out = [];
+  arr.forEach((id, j) => { if (j !== i && fitsSlot(p, j) && (!id || fitsSlot(state.byId.get(id), i))) out.push({ j, cross: false, id }); });
+  out.push({ j: i, cross: true, id: other[i] });
+  return out;
+}
+function openMove(i) {
+  const d = state.draft, bench = state.squadMode === 'yedek', arr = bench ? d.subs : d.picks, other = bench ? d.picks : d.subs;
+  const p = state.byId.get(arr[i]);
+  const t = swapTargets(i);
+  openSheet(`
+    <div class="row between"><h2 class="grow">${esc(shortName(p.name))} nereye?</h2><button class="btn subtle" data-a="close" style="min-height:40px">Kapat</button></div>
+    ${t.map((x, k) => { const q = x.id ? state.byId.get(x.id) : null; return `<button class="btn subtle" data-a="t${k}" style="justify-content:flex-start">${x.cross ? (bench ? '🥇 Altın 11\'e al' : '🥈 Gümüş 11\'e al') : '↔ ' + SLOT_LABEL[x.j]}${q ? ` <span class="small muted">(${esc(shortName(q.name))} ile yer değiştir)</span>` : ' <span class="small muted">(boş)</span>'}</button>`; }).join('')}`, (a) => {
+    if (a === 'close') return closeSheet();
+    const x = t[+a.slice(1)]; if (!x) return;
+    if (x.cross) { const tmp = other[i]; other[i] = arr[i]; arr[i] = tmp; if (d.captain && !d.picks.includes(d.captain)) d.captain = null; }
+    else { const tmp = arr[x.j]; arr[x.j] = arr[i]; arr[i] = tmp; }
+    d.dirty = true; closeSheet(); renderSquad();
+  });
+}
+
 function openPicker(i, team = null) {
-  const zone = ZONE_OF[i], d = state.draft;
-  const pool = state.players.filter((p) => p.zone === zone);
+  const zone = SLOT_LABEL[i], d = state.draft;
+  const pool = state.players.filter((p) => fitsSlot(p, i));
   // Takım sırası: bu haftanın maçlarına göre (rakipler yan yana), kalanlar alfabetik
   const order = [];
   (state.matches || []).filter((m) => m.week_id === d.week).forEach((m) => { [m.home, m.away].forEach((t) => { if (!order.includes(t)) order.push(t); }); });
@@ -386,7 +432,7 @@ function openPicker(i, team = null) {
     $res.innerHTML = `<div class="teamgrid">${teams.map((t) => {
       const k = KITS[t] || EMPTY_KIT, n = pool.filter((p) => p.team === t).length;
       const mine = pool.some((p) => p.team === t && (d.picks.includes(p.id) || d.subs.includes(p.id)));
-      return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${crest(t, 44)}<b>${esc(t)}</b><span class="small muted">${n} ${zone.toLocaleLowerCase('tr')}</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
+      return `<button class="teamtile ${mine ? 'has' : ''}" data-team="${esc(t)}" style="--c1:${k[0]}; --c2:${k[1]}"><span class="sw"></span>${crest(t, 44)}<b>${esc(t)}</b><span class="small muted">${n} oyuncu</span>${opponentOf(d.week, t) ? `<span class="small accent">vs ${esc(opponentOf(d.week, t).replace(' (dep.)', ''))}</span>` : ''}</button>`;
     }).join('')}</div>`;
     $res.querySelectorAll('[data-team]').forEach((b) => { b.onclick = () => openPicker(i, b.dataset.team); });
   };
@@ -778,6 +824,7 @@ async function renderAdmin() {
 
 // ---------- Alt pencere ----------
 function openSheet(html, onAction) {
+  if (!history.state?.sheet) history.pushState({ tab: state.tab, sheet: true }, '');
   $sheet.innerHTML = `<div class="panel" role="dialog" aria-modal="true">${html}</div>`;
   $sheet.hidden = false;
   $sheet.onclick = (e) => {
@@ -786,7 +833,18 @@ function openSheet(html, onAction) {
   };
   const first = $sheet.querySelector('input, button'); if (first) first.focus();
 }
-function closeSheet() { $sheet.hidden = true; $sheet.innerHTML = ''; }
+function closeSheet(fromPop = false) {
+  $sheet.hidden = true; $sheet.innerHTML = '';
+  // Başka bir pencere hemen açılmadıysa geçmişteki pencere kaydını geri al
+  if (!fromPop) setTimeout(() => { if ($sheet.hidden && history.state?.sheet) { ignorePop = true; history.back(); } }, 0);
+}
+// Telefonun geri tuşu: önce açık pencereyi kapatır, sonra önceki sekmeye döner
+history.replaceState({ tab: 'home' }, '');
+window.addEventListener('popstate', (e) => {
+  if (ignorePop) { ignorePop = false; return; }
+  if (!$sheet.hidden) return closeSheet(true);
+  if (state.profile) go(e.state?.tab || 'home', true);
+});
 document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !$sheet.hidden) closeSheet(); });
 
 boot().catch((e) => { $app.innerHTML = `<div class="card">Bağlantı kurulamadı: ${esc(e.message)}</div>`; });
